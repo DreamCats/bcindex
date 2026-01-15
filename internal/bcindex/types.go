@@ -32,12 +32,12 @@ type Symbol struct {
 }
 
 type TextDoc struct {
-	Path      string
-	Kind      string
-	Title     string
-	Content   string
-	LineStart int
-	LineEnd   int
+	Path      string `json:"path" bleve:"path"`
+	Kind      string `json:"kind" bleve:"kind"`
+	Title     string `json:"title" bleve:"title"`
+	Content   string `json:"content" bleve:"content"`
+	LineStart int    `json:"line_start" bleve:"line_start"`
+	LineEnd   int    `json:"line_end" bleve:"line_end"`
 }
 
 type SearchHit struct {

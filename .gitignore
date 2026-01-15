@@ -1,0 +1,16 @@
+# Binaries
+/bcindex
+*.exe
+*.test
+*.out
+
+# Build output
+bin/
+dist/
+
+# IDE / OS
+.DS_Store
+
+# Go workspace (optional)
+go.work
+go.work.sum
