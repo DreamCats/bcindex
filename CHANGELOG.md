@@ -2,6 +2,13 @@
 
 ## 2025-01-15
 
+- 版本：0.1.4
+- 变更：watch 增加去抖与批处理，索引过程改为单文件失败可继续，并补充按 path 清理旧文档的兜底逻辑。
+- 影响文件：`internal/bcindex/cli.go`、`internal/bcindex/indexer.go`、`internal/bcindex/diff.go`、`internal/bcindex/symbol_store.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
 - 版本：0.1.3
 - 变更：新增增量索引（基于 git diff）与 watch 监听模式。
 - 影响文件：`internal/bcindex/indexer.go`、`internal/bcindex/diff.go`、`internal/bcindex/symbol_store.go`、`internal/bcindex/cli.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。

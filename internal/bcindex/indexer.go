@@ -12,6 +12,47 @@ import (
 	"github.com/blevesearch/bleve/v2"
 )
 
+type IndexWarning struct {
+	Count   int
+	Samples []string
+}
+
+func (w *IndexWarning) Error() string {
+	if w == nil {
+		return ""
+	}
+	if len(w.Samples) > 0 {
+		return fmt.Sprintf("index completed with %d errors: %s", w.Count, strings.Join(w.Samples, "; "))
+	}
+	return fmt.Sprintf("index completed with %d errors", w.Count)
+}
+
+type indexErrorCollector struct {
+	count   int
+	samples []string
+}
+
+func newIndexErrorCollector() *indexErrorCollector {
+	return &indexErrorCollector{}
+}
+
+func (c *indexErrorCollector) Add(path string, err error) {
+	if err == nil {
+		return
+	}
+	c.count++
+	if len(c.samples) < 5 {
+		c.samples = append(c.samples, fmt.Sprintf("%s: %v", path, err))
+	}
+}
+
+func (c *indexErrorCollector) Err() error {
+	if c.count == 0 {
+		return nil
+	}
+	return &IndexWarning{Count: c.count, Samples: c.samples}
+}
+
 func IndexRepo(root string) error {
 	return IndexRepoWithProgress(root, nil)
 }
@@ -67,25 +108,42 @@ func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 		defer reporter.Finish()
 	}
 
+	collector := newIndexErrorCollector()
 	for _, rel := range indexable {
 		abs := filepath.Join(paths.Root, filepath.FromSlash(rel))
 		content, err := os.ReadFile(abs)
 		if err != nil {
-			return fmt.Errorf("read %s: %w", rel, err)
+			collector.Add(rel, err)
+			if reporter != nil {
+				reporter.Increment()
+			}
+			continue
 		}
 		ext := strings.ToLower(filepath.Ext(rel))
 		switch ext {
 		case ".go":
 			if err := indexGoFile(store, textIndex, rel, content); err != nil {
-				return err
+				collector.Add(rel, err)
+				if reporter != nil {
+					reporter.Increment()
+				}
+				continue
 			}
 		case ".md", ".markdown":
 			if err := indexMarkdownFile(store, textIndex, rel, content); err != nil {
-				return err
+				collector.Add(rel, err)
+				if reporter != nil {
+					reporter.Increment()
+				}
+				continue
 			}
 		}
 		if err := store.InsertFile(FileEntryFromContent(rel, ext, content)); err != nil {
-			return err
+			collector.Add(rel, err)
+			if reporter != nil {
+				reporter.Increment()
+			}
+			continue
 		}
 		if reporter != nil {
 			reporter.Increment()
@@ -94,7 +152,10 @@ func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 
 	meta.LastIndexAt = time.Now()
 	meta.UpdatedAt = time.Now()
-	return SaveRepoMeta(paths, meta)
+	if err := SaveRepoMeta(paths, meta); err != nil {
+		return err
+	}
+	return collector.Err()
 }
 
 func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter) error {
@@ -127,10 +188,11 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 		defer reporter.Finish()
 	}
 
+	collector := newIndexErrorCollector()
 	for _, change := range changes {
 		if change.OldPath != "" && shouldIndex(change.OldPath) {
 			if err := removeFileIndex(store, textIndex, change.OldPath); err != nil {
-				return err
+				collector.Add(change.OldPath, err)
 			}
 		}
 
@@ -138,7 +200,7 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 		case "D":
 			if shouldIndex(change.Path) {
 				if err := removeFileIndex(store, textIndex, change.Path); err != nil {
-					return err
+					collector.Add(change.Path, err)
 				}
 			}
 		default:
@@ -149,12 +211,16 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 				continue
 			}
 			if err := removeFileIndex(store, textIndex, change.Path); err != nil {
-				return err
+				collector.Add(change.Path, err)
 			}
 			abs := filepath.Join(paths.Root, filepath.FromSlash(change.Path))
 			content, err := os.ReadFile(abs)
 			if err != nil {
-				return fmt.Errorf("read %s: %w", change.Path, err)
+				collector.Add(change.Path, err)
+				if reporter != nil {
+					reporter.Increment()
+				}
+				continue
 			}
 			ext := strings.ToLower(filepath.Ext(change.Path))
 			switch ext {
@@ -167,18 +233,31 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 					LineEnd:   lineCount(content),
 				}
 				if err := textIndex.Index("file:"+change.Path, doc); err != nil {
-					return err
+					collector.Add(change.Path, err)
+					if reporter != nil {
+						reporter.Increment()
+					}
+					continue
 				}
 				if err := store.InsertTextDoc(change.Path, "file:"+change.Path); err != nil {
-					return err
+					collector.Add(change.Path, err)
+					if reporter != nil {
+						reporter.Increment()
+					}
+					continue
 				}
 				symbols, err := ExtractGoSymbols(change.Path, content)
 				if err != nil {
-					return fmt.Errorf("parse go file %s: %w", change.Path, err)
+					collector.Add(change.Path, err)
+					if reporter != nil {
+						reporter.Increment()
+					}
+					continue
 				}
 				for _, sym := range symbols {
 					if err := store.InsertSymbol(sym); err != nil {
-						return err
+						collector.Add(change.Path, err)
+						break
 					}
 				}
 			case ".md", ".markdown":
@@ -193,10 +272,18 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 					}
 					docID := "md:" + change.Path + ":1"
 					if err := textIndex.Index(docID, doc); err != nil {
-						return err
+						collector.Add(change.Path, err)
+						if reporter != nil {
+							reporter.Increment()
+						}
+						continue
 					}
 					if err := store.InsertTextDoc(change.Path, docID); err != nil {
-						return err
+						collector.Add(change.Path, err)
+						if reporter != nil {
+							reporter.Increment()
+						}
+						continue
 					}
 					break
 				}
@@ -211,15 +298,21 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 						LineEnd:   chunk.LineEnd,
 					}
 					if err := textIndex.Index(docID, doc); err != nil {
-						return err
+						collector.Add(change.Path, err)
+						break
 					}
 					if err := store.InsertTextDoc(change.Path, docID); err != nil {
-						return err
+						collector.Add(change.Path, err)
+						break
 					}
 				}
 			}
 			if err := store.InsertFile(FileEntryFromContent(change.Path, ext, content)); err != nil {
-				return err
+				collector.Add(change.Path, err)
+				if reporter != nil {
+					reporter.Increment()
+				}
+				continue
 			}
 		}
 		if reporter != nil {
@@ -229,7 +322,10 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 
 	meta.LastIndexAt = time.Now()
 	meta.UpdatedAt = time.Now()
-	return SaveRepoMeta(paths, meta)
+	if err := SaveRepoMeta(paths, meta); err != nil {
+		return err
+	}
+	return collector.Err()
 }
 
 func IndexRepoDeltaFromGit(root, rev string, reporter ProgressReporter) error {
@@ -238,6 +334,10 @@ func IndexRepoDeltaFromGit(root, rev string, reporter ProgressReporter) error {
 		return err
 	}
 	if len(changes) == 0 {
+		if reporter != nil {
+			reporter.Start(0)
+			reporter.Finish()
+		}
 		return nil
 	}
 	return IndexRepoDelta(root, changes, reporter)
@@ -247,6 +347,12 @@ func removeFileIndex(store *SymbolStore, textIndex bleve.Index, rel string) erro
 	docIDs, err := store.ListTextDocIDs(rel)
 	if err != nil {
 		return err
+	}
+	if len(docIDs) == 0 {
+		docIDs, err = findDocIDsByPath(textIndex, rel)
+		if err != nil {
+			return err
+		}
 	}
 	for _, docID := range docIDs {
 		_ = textIndex.Delete(docID)
@@ -261,6 +367,24 @@ func removeFileIndex(store *SymbolStore, textIndex bleve.Index, rel string) erro
 		return err
 	}
 	return nil
+}
+
+func findDocIDsByPath(textIndex bleve.Index, path string) ([]string, error) {
+	query := bleve.NewMatchQuery(path)
+	query.SetField("path")
+	req := bleve.NewSearchRequestOptions(query, 1000, 0, false)
+	req.Fields = []string{"path"}
+	res, err := textIndex.Search(req)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, hit := range res.Hits {
+		if val, ok := hit.Fields["path"].(string); ok && val == path {
+			ids = append(ids, hit.ID)
+		}
+	}
+	return ids, nil
 }
 
 func indexGoFile(store *SymbolStore, textIndex TextIndexer, rel string, content []byte) error {

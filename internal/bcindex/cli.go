@@ -1,7 +1,10 @@
 package bcindex
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -77,15 +80,23 @@ func runIndex(args []string) int {
 	reporter := NewIndexProgress(*progress)
 	if strings.TrimSpace(*diff) != "" {
 		if err := IndexRepoDeltaFromGit(resolved, *diff, reporter); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			return 1
+			if warn := (*IndexWarning)(nil); errors.As(err, &warn) {
+				fmt.Fprintln(os.Stderr, warn.Error())
+			} else {
+				fmt.Fprintln(os.Stderr, err)
+				return 1
+			}
 		}
 		fmt.Println("index completed (diff)")
 		return 0
 	}
 	if err := IndexRepoWithProgress(resolved, reporter); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+		if warn := (*IndexWarning)(nil); errors.As(err, &warn) {
+			fmt.Fprintln(os.Stderr, warn.Error())
+		} else {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
 	}
 	fmt.Println("index completed")
 	return 0
@@ -95,6 +106,7 @@ func runWatch(args []string) int {
 	fs := flag.NewFlagSet("watch", flag.ContinueOnError)
 	root := fs.String("root", "", "repo root path")
 	interval := fs.Duration("interval", 3*time.Second, "poll interval")
+	debounceInterval := fs.Duration("debounce", 2*time.Second, "debounce duration")
 	progress := fs.Bool("progress", DefaultProgressEnabled(), "show progress")
 	if err := fs.Parse(args); err != nil {
 		return 1
@@ -105,21 +117,52 @@ func runWatch(args []string) int {
 		return 1
 	}
 	fmt.Printf("watching %s (interval %s)\n", resolved, interval.String())
-	for {
-		changes, err := gitStatusChanges(resolved)
+	debounce := *debounceInterval
+	if debounce < *interval {
+		debounce = *interval
+	}
+	ticker := time.NewTicker(*interval)
+	defer ticker.Stop()
+
+	var lastHash string
+	var pending []FileChange
+	var lastChange time.Time
+
+	for range ticker.C {
+		statusOut, changes, err := gitStatusSnapshot(resolved)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
-			time.Sleep(*interval)
 			continue
 		}
-		if len(changes) > 0 {
-			reporter := NewIndexProgress(*progress)
-			if err := IndexRepoDelta(resolved, changes, reporter); err != nil {
+		hash := hashString(statusOut)
+		if hash == "" && len(changes) == 0 {
+			pending = nil
+			lastChange = time.Time{}
+			lastHash = hash
+			continue
+		}
+		if hash != lastHash {
+			pending = changes
+			lastChange = time.Now()
+			lastHash = hash
+		}
+		if len(pending) == 0 || lastChange.IsZero() {
+			continue
+		}
+		if time.Since(lastChange) < debounce {
+			continue
+		}
+		reporter := NewIndexProgress(*progress)
+		if err := IndexRepoDelta(resolved, pending, reporter); err != nil {
+			if warn := (*IndexWarning)(nil); errors.As(err, &warn) {
+				fmt.Fprintln(os.Stderr, warn.Error())
+			} else {
 				fmt.Fprintln(os.Stderr, err)
 			}
 		}
-		time.Sleep(*interval)
+		pending = nil
 	}
+	return 0
 }
 
 func runQuery(args []string) int {
@@ -230,10 +273,18 @@ func printUsage() {
 Commands:
   init   --root <repo>
   index  --root <repo> [--full|--diff <rev>] [--progress]
-  watch  --root <repo> [--interval 3s] [--progress]
+  watch  --root <repo> [--interval 3s] [--debounce 2s] [--progress]
   query  --repo <id|path> --q <text> --type <text|symbol|mixed> [--json] [--progress]
   status --repo <id|path>
 `)
+}
+
+func hashString(input string) string {
+	if input == "" {
+		return ""
+	}
+	sum := sha1.Sum([]byte(input))
+	return hex.EncodeToString(sum[:])
 }
 
 func timeLayout() string {

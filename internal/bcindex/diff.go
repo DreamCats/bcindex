@@ -25,12 +25,18 @@ func gitDiffChanges(root, rev string) ([]FileChange, error) {
 }
 
 func gitStatusChanges(root string) ([]FileChange, error) {
+	_, changes, err := gitStatusSnapshot(root)
+	return changes, err
+}
+
+func gitStatusSnapshot(root string) (string, []FileChange, error) {
 	cmd := exec.Command("git", "-C", root, "status", "--porcelain")
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("git status failed: %w", err)
+		return "", nil, fmt.Errorf("git status failed: %w", err)
 	}
-	return parseStatusOutput(string(out)), nil
+	output := string(out)
+	return output, parseStatusOutput(output), nil
 }
 
 func parseNameStatusOutput(output string) []FileChange {
