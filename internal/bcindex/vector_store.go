@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -17,7 +19,19 @@ type VectorStore interface {
 	DeletePointsByIDs(ctx context.Context, collection string, ids []string) error
 	DeletePointsByRepo(ctx context.Context, collection string, repoID string) error
 	DeletePointsByRepoAndPath(ctx context.Context, collection string, repoID, path string) error
+	SearchSimilar(ctx context.Context, collection string, repoID string, vector []float32, topK int) ([]VectorSearchResult, error)
 	Close() error
+}
+
+type VectorSearchResult struct {
+	ID        string
+	File      string
+	Kind      string
+	Name      string
+	Title     string
+	LineStart int
+	LineEnd   int
+	Score     float64
 }
 
 type QdrantStore struct {
@@ -57,6 +71,31 @@ func (s *QdrantStore) DeletePointsByRepoAndPath(ctx context.Context, collection 
 		qdrantMatchFilter("path", path),
 	)
 	return s.client.DeletePointsByFilter(ctx, collection, filter)
+}
+
+func (s *QdrantStore) SearchSimilar(ctx context.Context, collection string, repoID string, vector []float32, topK int) ([]VectorSearchResult, error) {
+	if topK <= 0 {
+		topK = 10
+	}
+	filter := qdrantMustFilter(qdrantMatchFilter("repo_id", repoID))
+	points, err := s.client.SearchPoints(ctx, collection, vector, topK, filter)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]VectorSearchResult, 0, len(points))
+	for _, p := range points {
+		results = append(results, VectorSearchResult{
+			ID:        p.ID,
+			File:      payloadString(p.Payload, "path"),
+			Kind:      payloadString(p.Payload, "kind"),
+			Name:      payloadString(p.Payload, "name"),
+			Title:     payloadString(p.Payload, "title"),
+			LineStart: int(payloadInt64(p.Payload, "line_start")),
+			LineEnd:   int(payloadInt64(p.Payload, "line_end")),
+			Score:     p.Score,
+		})
+	}
+	return results, nil
 }
 
 func (s *QdrantStore) Close() error {
@@ -167,6 +206,52 @@ func (s *LocalVectorStore) DeletePointsByRepoAndPath(ctx context.Context, collec
 	return err
 }
 
+func (s *LocalVectorStore) SearchSimilar(ctx context.Context, collection string, repoID string, vector []float32, topK int) ([]VectorSearchResult, error) {
+	if topK <= 0 {
+		topK = 10
+	}
+	queryVec, queryNorm := toFloat64Vector(vector)
+	if len(queryVec) == 0 || queryNorm == 0 {
+		return nil, fmt.Errorf("vector query is empty")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.QueryContext(ctx, `SELECT id, path, kind, name, title, line_start, line_end, vector FROM vectors WHERE repo_id = ?`, repoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var hits []VectorSearchResult
+	for rows.Next() {
+		var id, path, kind, name, title, vectorJSON string
+		var lineStart, lineEnd int
+		if err := rows.Scan(&id, &path, &kind, &name, &title, &lineStart, &lineEnd, &vectorJSON); err != nil {
+			return nil, err
+		}
+		vec, err := decodeVector(vectorJSON)
+		if err != nil {
+			continue
+		}
+		score := cosineSimilarity(queryVec, vec, queryNorm)
+		hits = append(hits, VectorSearchResult{
+			ID:        id,
+			File:      path,
+			Kind:      kind,
+			Name:      name,
+			Title:     title,
+			LineStart: lineStart,
+			LineEnd:   lineEnd,
+			Score:     score,
+		})
+	}
+	sort.Slice(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
+	if len(hits) > topK {
+		hits = hits[:topK]
+	}
+	return hits, nil
+}
+
 func (s *LocalVectorStore) Close() error {
 	return s.db.Close()
 }
@@ -217,6 +302,44 @@ func encodeVector(vec []float32) (string, error) {
 		return "", err
 	}
 	return string(out), nil
+}
+
+func decodeVector(raw string) ([]float64, error) {
+	var vec []float64
+	if err := json.Unmarshal([]byte(raw), &vec); err != nil {
+		return nil, err
+	}
+	return vec, nil
+}
+
+func toFloat64Vector(vec []float32) ([]float64, float64) {
+	out := make([]float64, len(vec))
+	var sum float64
+	for i, val := range vec {
+		v := float64(val)
+		out[i] = v
+		sum += v * v
+	}
+	return out, math.Sqrt(sum)
+}
+
+func cosineSimilarity(query []float64, vec []float64, queryNorm float64) float64 {
+	if len(query) == 0 || len(vec) == 0 || queryNorm == 0 {
+		return 0
+	}
+	if len(query) != len(vec) {
+		return 0
+	}
+	var dot float64
+	var norm float64
+	for i, val := range vec {
+		dot += query[i] * val
+		norm += val * val
+	}
+	if norm == 0 {
+		return 0
+	}
+	return dot / (queryNorm * math.Sqrt(norm))
 }
 
 func payloadString(payload map[string]any, key string) string {

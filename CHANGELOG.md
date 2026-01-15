@@ -2,6 +2,13 @@
 
 ## 2025-01-15
 
+- 版本：0.3.9
+- 变更：新增向量查询与 mixed 融合（text/symbol/vector），输出补充 source 字段。
+- 影响文件：`internal/bcindex/query.go`、`internal/bcindex/vector_store.go`、`internal/bcindex/qdrant_client.go`、`internal/bcindex/types.go`、`internal/bcindex/cli.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
 - 版本：0.3.8
 - 变更：索引完成提示包含 text/symbol/vector 阶段信息（含 diff 场景）。
 - 影响文件：`internal/bcindex/cli.go`、`PROJECT_META.md`、`CHANGELOG.md`。

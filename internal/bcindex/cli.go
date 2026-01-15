@@ -188,7 +188,7 @@ func runQuery(args []string) int {
 	fs := flag.NewFlagSet("query", flag.ContinueOnError)
 	repo := fs.String("repo", "", "repo id or path")
 	root := fs.String("root", "", "repo root path (overrides --repo)")
-	qtype := fs.String("type", "mixed", "query type: text|symbol|mixed")
+	qtype := fs.String("type", "mixed", "query type: text|symbol|mixed|vector")
 	query := fs.String("q", "", "query text")
 	topK := fs.Int("top", 10, "max results")
 	jsonOut := fs.Bool("json", false, "output JSON")
@@ -375,7 +375,7 @@ Commands:
   init   --root <repo>
   index  --root <repo> [--full|--diff <rev>] [--progress]
   watch  --root <repo> [--interval 3s] [--debounce 2s] [--progress]
-  query  --repo <id|path> --q <text> --type <text|symbol|mixed> [--json] [--progress]
+  query  --repo <id|path> --q <text> --type <text|symbol|mixed|vector> [--json] [--progress]
   status --repo <id|path>
   version [--root <repo>]
   config init [--force]

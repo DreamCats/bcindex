@@ -42,6 +42,7 @@ type TextDoc struct {
 
 type SearchHit struct {
 	Kind    string  `json:"kind"`
+	Source  string  `json:"source"`
 	Name    string  `json:"name"`
 	File    string  `json:"file"`
 	Line    int     `json:"line"`

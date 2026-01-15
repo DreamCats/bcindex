@@ -37,6 +37,7 @@ go run ./cmd/bcindex watch --root . --interval 3s --debounce 2s --progress
 ```bash
 go run ./cmd/bcindex query --root . --q "IndexRepo" --type symbol
 go run ./cmd/bcindex query --root . --q "BCIndex" --type text
+go run ./cmd/bcindex query --root . --q "索引进度条如何实现" --type vector
 go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed
 go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed --json
 go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed --progress
@@ -69,7 +70,7 @@ go run ./cmd/bcindex version
 bcindex init   --root <repo>
 bcindex index  --root <repo> [--full|--diff <rev>] [--progress]
 bcindex watch  --root <repo> [--interval 3s] [--debounce 2s] [--progress]
-bcindex query  --root <repo> --q <text> --type <text|symbol|mixed> [--json] [--progress]
+bcindex query  --root <repo> --q <text> --type <text|symbol|mixed|vector> [--json] [--progress]
 bcindex status --root <repo>
 bcindex version [--root <repo>]
 bcindex config init [--force]

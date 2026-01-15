@@ -96,6 +96,49 @@ func (c *QdrantClient) DeletePointsByFilter(ctx context.Context, collection stri
 	return err
 }
 
+type QdrantSearchPoint struct {
+	ID      string
+	Score   float64
+	Payload map[string]any
+}
+
+func (c *QdrantClient) SearchPoints(ctx context.Context, collection string, vector []float32, limit int, filter map[string]any) ([]QdrantSearchPoint, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	req := map[string]any{
+		"vector":       vector,
+		"limit":        limit,
+		"with_payload": true,
+	}
+	if len(filter) > 0 {
+		req["filter"] = filter
+	}
+	data, err := c.doRequest(ctx, http.MethodPost, "/collections/"+collection+"/points/search", req)
+	if err != nil {
+		return nil, err
+	}
+	var parsed struct {
+		Result []struct {
+			ID      any            `json:"id"`
+			Score   float64        `json:"score"`
+			Payload map[string]any `json:"payload"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, err
+	}
+	points := make([]QdrantSearchPoint, 0, len(parsed.Result))
+	for _, item := range parsed.Result {
+		points = append(points, QdrantSearchPoint{
+			ID:      fmt.Sprintf("%v", item.ID),
+			Score:   item.Score,
+			Payload: item.Payload,
+		})
+	}
+	return points, nil
+}
+
 func (c *QdrantClient) doRequest(ctx context.Context, method, path string, body any) ([]byte, error) {
 	var buf io.Reader
 	if body != nil {

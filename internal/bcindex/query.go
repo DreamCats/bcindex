@@ -2,6 +2,7 @@ package bcindex
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +21,9 @@ func QueryRepo(paths RepoPaths, meta *RepoMeta, query string, qtype string, topK
 		return queryText(paths, meta, query, topK)
 	case "symbol":
 		return querySymbols(paths, query, topK)
+	case "vector":
+		hits, _, err := queryVector(paths, meta, query, topK, true)
+		return hits, err
 	case "mixed", "":
 		return queryMixed(paths, meta, query, topK)
 	default:
@@ -65,6 +69,7 @@ func querySymbols(paths RepoPaths, query string, topK int) ([]SearchHit, error) 
 		}
 		hits = append(hits, SearchHit{
 			Kind:    "symbol",
+			Source:  "symbol",
 			Name:    sym.Name,
 			File:    sym.File,
 			Line:    sym.Line,
@@ -84,37 +89,74 @@ func queryMixed(paths RepoPaths, meta *RepoMeta, query string, topK int) ([]Sear
 	if err != nil {
 		return nil, err
 	}
+	vectorHits, _, err := queryVector(paths, meta, query, topK, false)
+	if err != nil {
+		return nil, err
+	}
 
 	type rankedHit struct {
 		hit      SearchHit
+		text     *SearchHit
+		vector   *SearchHit
+		symbol   *SearchHit
 		priority int
 	}
 	hitMap := make(map[string]rankedHit)
 	for _, hit := range symbolHits {
 		key := fmt.Sprintf("%s:%d", hit.File, hit.Line)
 		hit.Score = 1.0
-		hitMap[key] = rankedHit{hit: hit, priority: 2}
+		hitMap[key] = rankedHit{hit: hit, symbol: &hit, priority: 3}
 	}
 	for _, hit := range textHits {
 		key := fmt.Sprintf("%s:%d", hit.File, hit.Line)
 		if existing, ok := hitMap[key]; ok {
-			if existing.priority == 2 {
+			if existing.priority == 3 {
 				if existing.hit.Snippet == "" {
 					existing.hit.Snippet = hit.Snippet
 				}
+				existing.text = &hit
 				hitMap[key] = existing
 				continue
 			}
 			if hit.Score > existing.hit.Score {
-				hitMap[key] = rankedHit{hit: hit, priority: 1}
+				existing.hit = hit
+				existing.text = &hit
+				existing.priority = 2
+				hitMap[key] = existing
 			}
 			continue
 		}
-		hitMap[key] = rankedHit{hit: hit, priority: 1}
+		hitMap[key] = rankedHit{hit: hit, text: &hit, priority: 2}
+	}
+	for _, hit := range vectorHits {
+		key := fmt.Sprintf("%s:%d", hit.File, hit.Line)
+		if existing, ok := hitMap[key]; ok {
+			existing.vector = &hit
+			if existing.hit.Snippet == "" {
+				existing.hit.Snippet = hit.Snippet
+			}
+			hitMap[key] = existing
+			continue
+		}
+		hitMap[key] = rankedHit{hit: hit, vector: &hit, priority: 1}
 	}
 
 	var merged []rankedHit
 	for _, hit := range hitMap {
+		vectorScore := 0.0
+		textScore := 0.0
+		symbolBoost := 0.0
+		if hit.vector != nil {
+			vectorScore = hit.vector.Score
+		}
+		if hit.text != nil {
+			textScore = hit.text.Score
+		}
+		if hit.symbol != nil {
+			symbolBoost = 1.0
+		}
+		hit.hit.Score = 0.5*vectorScore + 0.3*textScore + 0.2*symbolBoost
+		hit.hit.Source = joinSources(hit.symbol != nil, hit.text != nil, hit.vector != nil)
 		merged = append(merged, hit)
 	}
 	sort.Slice(merged, func(i, j int) bool {
@@ -137,6 +179,61 @@ func queryMixed(paths RepoPaths, meta *RepoMeta, query string, topK int) ([]Sear
 		results = append(results, hit.hit)
 	}
 	return results, nil
+}
+
+func queryVector(paths RepoPaths, meta *RepoMeta, query string, topK int, required bool) ([]SearchHit, bool, error) {
+	cfg, ok, err := LoadVectorConfigOptional()
+	if err != nil {
+		return nil, false, err
+	}
+	if !ok || !cfg.VectorEnabled {
+		if required {
+			return nil, false, fmt.Errorf("vector search requires enabled vector config")
+		}
+		return nil, false, nil
+	}
+	runtime, err := NewVectorRuntime(cfg)
+	if err != nil {
+		return nil, true, err
+	}
+	defer runtime.Close()
+
+	ctx := context.Background()
+	if err := runtime.EnsureCollection(ctx); err != nil {
+		return nil, true, err
+	}
+	embeddings, err := runtime.embedder.EmbedTexts(ctx, []string{query})
+	if err != nil {
+		return nil, true, err
+	}
+	if len(embeddings) == 0 {
+		return nil, true, fmt.Errorf("vector embedding empty")
+	}
+	hits, err := runtime.store.SearchSimilar(ctx, cfg.QdrantCollection, meta.RepoID, embeddings[0].Vector, topK)
+	if err != nil {
+		return nil, true, err
+	}
+	results := make([]SearchHit, 0, len(hits))
+	for _, hit := range hits {
+		line := hit.LineStart
+		if line <= 0 {
+			line = 1
+		}
+		snippet := readLine(meta.Root, hit.File, line)
+		if snippet == "" {
+			snippet = strings.TrimSpace(hit.Title)
+		}
+		results = append(results, SearchHit{
+			Kind:    "vector",
+			Source:  "vector",
+			Name:    hit.Name,
+			File:    hit.File,
+			Line:    line,
+			Score:   hit.Score,
+			Snippet: snippet,
+		})
+	}
+	return results, true, nil
 }
 
 func searchText(index bleve.Index, root string, query string, topK int) ([]SearchHit, error) {
@@ -177,6 +274,7 @@ func searchText(index bleve.Index, root string, query string, topK int) ([]Searc
 		}
 		hits = append(hits, SearchHit{
 			Kind:    "text",
+			Source:  "text",
 			File:    pathVal,
 			Line:    lineStart,
 			Score:   hit.Score,
@@ -239,4 +337,18 @@ func findMatchLine(root, rel, query string) (int, string) {
 		line++
 	}
 	return 0, ""
+}
+
+func joinSources(hasSymbol, hasText, hasVector bool) string {
+	parts := make([]string, 0, 3)
+	if hasSymbol {
+		parts = append(parts, "symbol")
+	}
+	if hasText {
+		parts = append(parts, "text")
+	}
+	if hasVector {
+		parts = append(parts, "vector")
+	}
+	return strings.Join(parts, "+")
 }
