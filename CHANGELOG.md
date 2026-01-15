@@ -9,6 +9,13 @@
 
 ## 2025-01-15
 
+- 版本：0.3.11
+- 变更：索引时自动生成默认向量配置，并在缺少 API Key/Model 时友好提示并降级。
+- 影响文件：`internal/bcindex/indexer.go`、`internal/bcindex/cli.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
 - 版本：0.3.10
 - 变更：`index --diff` 在索引缺失时自动回退到全量索引，减少首次使用负担；补充 README 提示。
 - 影响文件：`internal/bcindex/cli.go`、`internal/bcindex/index_check.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。

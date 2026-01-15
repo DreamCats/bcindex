@@ -25,6 +25,8 @@ go run ./cmd/bcindex index --root . --full --progress
 
 说明：`index --full` 会自动初始化仓库元信息与目录，`init` 可选。
 
+首次使用向量化时，若未创建配置文件，`index` 会自动生成默认配置并提示你补全 `volces_api_key` 与 `volces_model`，否则将降级为仅文本/符号索引。
+
 1.1) 增量索引（基于 git diff）
 ```bash
 go run ./cmd/bcindex index --root . --diff HEAD~1 --progress

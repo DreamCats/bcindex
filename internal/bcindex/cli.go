@@ -189,7 +189,9 @@ func indexCompletionSummary(root string, isDiff bool) string {
 	phase := "text+symbol"
 	vectorEnabled := false
 	if cfg, ok, err := LoadVectorConfigOptional(); err == nil && ok {
-		vectorEnabled = cfg.VectorEnabled
+		vectorEnabled = cfg.VectorEnabled &&
+			strings.TrimSpace(cfg.VolcesAPIKey) != "" &&
+			strings.TrimSpace(cfg.VolcesModel) != ""
 	}
 	if vectorEnabled {
 		phase = "text+symbol+vector"

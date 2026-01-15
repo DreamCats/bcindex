@@ -105,11 +105,10 @@ func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 		return err
 	}
 
-	vectorCfg, vectorEnabled, err := LoadVectorConfigOptional()
+	vectorCfg, vectorEnabled, err := loadVectorConfigForIndex()
 	if err != nil {
 		return err
 	}
-	vectorEnabled = vectorEnabled && vectorCfg.VectorEnabled
 
 	files, err := listTrackedFiles(paths.Root)
 	if err != nil {
@@ -272,11 +271,10 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 		return err
 	}
 
-	vectorCfg, vectorEnabled, err := LoadVectorConfigOptional()
+	vectorCfg, vectorEnabled, err := loadVectorConfigForIndex()
 	if err != nil {
 		return err
 	}
-	vectorEnabled = vectorEnabled && vectorCfg.VectorEnabled
 
 	collector := newIndexErrorCollector()
 	var storeMu sync.Mutex
@@ -640,6 +638,32 @@ func vectorStoreMode(runtime *VectorRuntime) string {
 	default:
 		return "unknown"
 	}
+}
+
+func loadVectorConfigForIndex() (VectorConfig, bool, error) {
+	cfg, ok, err := LoadVectorConfigOptional()
+	if err != nil {
+		return VectorConfig{}, false, err
+	}
+	if !ok {
+		path, err := WriteDefaultVectorConfig()
+		if err != nil {
+			return VectorConfig{}, false, err
+		}
+		fmt.Fprintf(os.Stderr, "vector config not found; created default config at %s\n", path)
+		cfg, err = LoadVectorConfig()
+		if err != nil {
+			return VectorConfig{}, false, err
+		}
+	}
+	if !cfg.VectorEnabled {
+		return cfg, false, nil
+	}
+	if strings.TrimSpace(cfg.VolcesAPIKey) == "" || strings.TrimSpace(cfg.VolcesModel) == "" {
+		fmt.Fprintln(os.Stderr, "vector config missing volces_api_key or volces_model; vector indexing disabled")
+		return cfg, false, nil
+	}
+	return cfg, true, nil
 }
 
 func findDocIDsByPath(textIndex bleve.Index, path string) ([]string, error) {
