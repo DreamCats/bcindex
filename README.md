@@ -6,11 +6,13 @@
 - Go 符号索引（函数、方法、结构体、接口、变量、常量）
 - Markdown 文本分块索引
 - 文本检索与符号检索（支持 mixed 简单融合）
+- 向量索引写入（Qdrant + Volces embedding）
 - 本地用户目录持久化（`~/.bcindex/`）
+- 增量索引（基于 git diff）
+- watch 监听模式（轮询 + 去抖/批处理）
 
 不包含：
-- 向量检索
-- watch/增量索引
+- 向量检索/混合检索（Phase 3）
 - MCP stdio API
 
 ## 快速开始
@@ -83,7 +85,7 @@ bcindex config init [--force]
 - 可执行入口在 `cmd/bcindex`，请使用：
   - `go run ./cmd/bcindex ...`
 
-3) 向量化（Phase 1 配置文件）
+3) 向量化配置文件
 
 配置文件路径：
 ```
@@ -95,27 +97,34 @@ bcindex config init [--force]
 go run ./cmd/bcindex config init
 ```
 
+说明：
+- `qdrant_path` 指定本地存储目录（本地模式，不依赖 Qdrant 进程）。
+- 若 `qdrant_path` 为空，则使用 `qdrant_url` 连接远程 Qdrant 服务。
+- 本地模式会将向量写入 `qdrant_path/vectors.db`。
+
 示例（最简，类似 docs-hub）：
 ```yaml
 qdrant_path: "~/.bcindex/qdrant"
 qdrant_collection: "bcindex_vectors"
-qdrant_auto_start: true
 volces_endpoint: "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal"
 volces_api_key: "your_api_key"
 volces_model: "your_model_id"
-volces_dimensions: 1024
-volces_encoding: "float"
-volces_timeout: "30s"
+vector_enabled: true
 ```
 
 可选字段（需要时再填）：
 ```yaml
 qdrant_url: "http://127.0.0.1:6333"
 qdrant_api_key: ""
-qdrant_bin: "qdrant"          # 不填则使用 PATH 中的 qdrant
 qdrant_http_port: 6333
 qdrant_grpc_port: 6334
+volces_dimensions: 1024
+volces_encoding: "float"
+volces_timeout: "30s"
 volces_instructions: ""
+vector_batch_size: 8
+vector_max_chars: 1500
+vector_workers: 4
 ```
 
 ## 文档参考

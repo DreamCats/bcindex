@@ -31,6 +31,8 @@ func Run(args []string) int {
 		return runStatus(args[2:])
 	case "version":
 		return runVersion(args[2:])
+	case "config":
+		return runConfig(args[2:])
 	case "help", "-h", "--help":
 		printUsage()
 		return 0
@@ -89,7 +91,7 @@ func runIndex(args []string) int {
 				return 1
 			}
 		}
-		fmt.Println("index completed (diff)")
+		fmt.Println(indexCompletionSummary(resolved, true))
 		return 0
 	}
 	if err := IndexRepoWithProgress(resolved, reporter); err != nil {
@@ -100,7 +102,7 @@ func runIndex(args []string) int {
 			return 1
 		}
 	}
-	fmt.Println("index completed")
+	fmt.Println(indexCompletionSummary(resolved, false))
 	return 0
 }
 
@@ -165,6 +167,21 @@ func runWatch(args []string) int {
 		pending = nil
 	}
 	return 0
+}
+
+func indexCompletionSummary(root string, isDiff bool) string {
+	phase := "text+symbol"
+	vectorEnabled := false
+	if cfg, ok, err := LoadVectorConfigOptional(); err == nil && ok {
+		vectorEnabled = cfg.VectorEnabled
+	}
+	if vectorEnabled {
+		phase = "text+symbol+vector"
+	}
+	if isDiff {
+		return fmt.Sprintf("index completed (diff: %s)", phase)
+	}
+	return fmt.Sprintf("index completed (%s)", phase)
 }
 
 func runQuery(args []string) int {
@@ -278,6 +295,46 @@ func runVersion(args []string) int {
 	return 0
 }
 
+func runConfig(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "config requires a subcommand: init")
+		return 1
+	}
+	switch args[0] {
+	case "init":
+		return runConfigInit(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown config subcommand: %s\n", args[0])
+		return 1
+	}
+}
+
+func runConfigInit(args []string) int {
+	fs := flag.NewFlagSet("config init", flag.ContinueOnError)
+	force := fs.Bool("force", false, "overwrite existing config")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+	path, err := vectorConfigPath()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if *force {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	}
+	created, err := WriteDefaultVectorConfig()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Printf("config: %s\n", created)
+	return 0
+}
+
 func resolveRoot(root string) (string, error) {
 	if strings.TrimSpace(root) != "" {
 		return filepath.Abs(root)
@@ -321,6 +378,7 @@ Commands:
   query  --repo <id|path> --q <text> --type <text|symbol|mixed> [--json] [--progress]
   status --repo <id|path>
   version [--root <repo>]
+  config init [--force]
 `)
 }
 

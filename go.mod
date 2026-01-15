@@ -6,6 +6,7 @@ require (
 	github.com/blevesearch/bleve/v2 v2.5.7
 	github.com/schollz/progressbar/v3 v3.19.0
 	golang.org/x/term v0.28.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.44.0
 )
 

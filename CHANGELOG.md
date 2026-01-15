@@ -2,6 +2,69 @@
 
 ## 2025-01-15
 
+- 版本：0.3.8
+- 变更：索引完成提示包含 text/symbol/vector 阶段信息（含 diff 场景）。
+- 影响文件：`internal/bcindex/cli.go`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
+- 版本：0.3.7
+- 变更：索引阶段增加 phase 提示（text/symbol、vector 模式与等待阶段）。
+- 影响文件：`internal/bcindex/indexer.go`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
+- 版本：0.3.6
+- 变更：本地向量库写入加锁与 busy_timeout，避免 SQLITE_BUSY；向量错误增加 `vector:` 前缀便于识别。
+- 影响文件：`internal/bcindex/vector_store.go`、`internal/bcindex/indexer.go`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
+- 版本：0.3.5
+- 变更：Volces embedding 响应兼容 data 为对象/数组的格式，避免解析失败。
+- 影响文件：`internal/bcindex/volces_embeddings.go`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
+- 版本：0.3.4
+- 变更：向量存储改为本地模式（`qdrant_path` 走本地 SQLite 存储，不依赖 Qdrant 进程），新增本地向量存储实现与配置说明。
+- 影响文件：`internal/bcindex/vector_store.go`、`internal/bcindex/vector_runtime.go`、`internal/bcindex/indexer.go`、`internal/bcindex/vector_config.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
+- 版本：0.3.3
+- 变更：自动下载 Qdrant 二进制（无 qdrant_bin 且 PATH 中缺失时），与 docs-hub 使用体验对齐。
+- 影响文件：`internal/bcindex/qdrant_download.go`、`internal/bcindex/qdrant_process.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：无
+
+## 2025-01-15
+
+- 版本：0.3.2
+- 变更：`config init` 默认写入 `qdrant_path=~/.bcindex/qdrant`，输出最小配置，补充 README 配置示例。
+- 影响文件：`internal/bcindex/vector_config.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：无
+
+## 2025-01-15
+
+- 版本：0.3.1
+- 变更：向量索引 Phase 2（Go 函数级分块、全量清理旧向量、增量更新复用向量运行时、并发 worker + 批量 embedding），新增 `vector_workers` 配置。
+- 影响文件：`internal/bcindex/indexer.go`、`internal/bcindex/vector_chunks.go`、`internal/bcindex/vector_config.go`、`internal/bcindex/vector_runtime.go`、`internal/bcindex/qdrant_client.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
+- 版本：0.3.0
+- 变更：新增向量分块与写入/删除流程，支持 file->vector_ids 映射。
+- 影响文件：`internal/bcindex/indexer.go`、`internal/bcindex/vector_chunks.go`、`internal/bcindex/vector_types.go`、`internal/bcindex/symbol_store.go`、`internal/bcindex/vector_config.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
 - 版本：0.2.3
 - 变更：配置示例改为 docs-hub 风格（以 qdrant_path 为主，附可选字段说明）。
 - 影响文件：`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。

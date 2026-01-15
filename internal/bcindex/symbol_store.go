@@ -51,6 +51,10 @@ func (s *SymbolStore) InitSchema(reset bool) error {
 			file TEXT,
 			doc_id TEXT
 		);`,
+		`CREATE TABLE IF NOT EXISTS vector_docs (
+			file TEXT,
+			vector_id TEXT
+		);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -63,6 +67,7 @@ func (s *SymbolStore) InitSchema(reset bool) error {
 			`DELETE FROM refs;`,
 			`DELETE FROM files;`,
 			`DELETE FROM text_docs;`,
+			`DELETE FROM vector_docs;`,
 		}
 		for _, stmt := range resetStmts {
 			if _, err := s.db.Exec(stmt); err != nil {
@@ -143,6 +148,40 @@ func (s *SymbolStore) ListTextDocIDs(file string) ([]string, error) {
 		ids = append(ids, id)
 	}
 	return ids, nil
+}
+
+func (s *SymbolStore) InsertVectorDoc(file, vectorID string) error {
+	_, err := s.db.Exec(`INSERT INTO vector_docs (file, vector_id) VALUES (?, ?)`, file, vectorID)
+	if err != nil {
+		return fmt.Errorf("insert vector doc: %w", err)
+	}
+	return nil
+}
+
+func (s *SymbolStore) ListVectorIDs(file string) ([]string, error) {
+	rows, err := s.db.Query(`SELECT vector_id FROM vector_docs WHERE file = ?`, file)
+	if err != nil {
+		return nil, fmt.Errorf("list vector ids: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan vector id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func (s *SymbolStore) DeleteVectorDocs(file string) error {
+	_, err := s.db.Exec(`DELETE FROM vector_docs WHERE file = ?`, file)
+	if err != nil {
+		return fmt.Errorf("delete vector docs: %w", err)
+	}
+	return nil
 }
 
 func (s *SymbolStore) CountSymbols() (int, error) {

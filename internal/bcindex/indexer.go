@@ -1,12 +1,14 @@
 package bcindex
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blevesearch/bleve/v2"
@@ -28,8 +30,15 @@ func (w *IndexWarning) Error() string {
 }
 
 type indexErrorCollector struct {
+	mu      sync.Mutex
 	count   int
 	samples []string
+}
+
+type vectorJob struct {
+	rel      string
+	content  []byte
+	mdChunks []MDChunk
 }
 
 func newIndexErrorCollector() *indexErrorCollector {
@@ -40,6 +49,8 @@ func (c *indexErrorCollector) Add(path string, err error) {
 	if err == nil {
 		return
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.count++
 	if len(c.samples) < 5 {
 		c.samples = append(c.samples, fmt.Sprintf("%s: %v", path, err))
@@ -47,6 +58,8 @@ func (c *indexErrorCollector) Add(path string, err error) {
 }
 
 func (c *indexErrorCollector) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.count == 0 {
 		return nil
 	}
@@ -92,6 +105,12 @@ func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 		return err
 	}
 
+	vectorCfg, vectorEnabled, err := LoadVectorConfigOptional()
+	if err != nil {
+		return err
+	}
+	vectorEnabled = vectorEnabled && vectorCfg.VectorEnabled
+
 	files, err := listTrackedFiles(paths.Root)
 	if err != nil {
 		return err
@@ -104,11 +123,55 @@ func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 		}
 	}
 	if reporter != nil {
+		announcePhase(reporter, fmt.Sprintf("phase:text+symbol files=%d", len(indexable)))
 		reporter.Start(len(indexable))
 		defer reporter.Finish()
 	}
 
 	collector := newIndexErrorCollector()
+	var storeMu sync.Mutex
+	var vectorRuntime *VectorRuntime
+	var vectorJobs chan vectorJob
+	var vectorWG sync.WaitGroup
+	if vectorEnabled {
+		runtime, err := NewVectorRuntime(vectorCfg)
+		if err != nil {
+			collector.Add("vector_runtime", err)
+			vectorEnabled = false
+		} else {
+			vectorRuntime = runtime
+			defer vectorRuntime.Close()
+			ctx := context.Background()
+			if err := vectorRuntime.EnsureCollection(ctx); err != nil {
+				collector.Add("vector_runtime", err)
+				vectorEnabled = false
+			} else {
+				if reporter != nil {
+					mode := vectorStoreMode(vectorRuntime)
+					announcePhase(reporter, fmt.Sprintf("phase:vector mode=%s workers=%d batch=%d", mode, vectorCfg.VectorWorkers, vectorCfg.VectorBatchSize))
+				}
+				if err := vectorRuntime.store.DeletePointsByRepo(ctx, vectorCfg.QdrantCollection, storeRepoID(paths.Root)); err != nil {
+					collector.Add("vector_cleanup", err)
+				}
+				workers := vectorCfg.VectorWorkers
+				if workers <= 0 {
+					workers = 1
+				}
+				vectorJobs = make(chan vectorJob, workers*2)
+				for i := 0; i < workers; i++ {
+					vectorWG.Add(1)
+					go func() {
+						defer vectorWG.Done()
+						for job := range vectorJobs {
+							if err := upsertVectorChunks(paths.Root, store, job.rel, job.content, job.mdChunks, vectorRuntime, &storeMu); err != nil {
+								collector.Add("vector:"+job.rel, err)
+							}
+						}
+					}()
+				}
+			}
+		}
+	}
 	for _, rel := range indexable {
 		abs := filepath.Join(paths.Root, filepath.FromSlash(rel))
 		content, err := os.ReadFile(abs)
@@ -122,23 +185,39 @@ func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 		ext := strings.ToLower(filepath.Ext(rel))
 		switch ext {
 		case ".go":
-			if err := indexGoFile(store, textIndex, rel, content); err != nil {
+			storeMu.Lock()
+			err := indexGoFile(store, textIndex, rel, content)
+			storeMu.Unlock()
+			if err != nil {
 				collector.Add(rel, err)
 				if reporter != nil {
 					reporter.Increment()
 				}
 				continue
+			}
+			if vectorJobs != nil {
+				vectorJobs <- vectorJob{rel: rel, content: content}
 			}
 		case ".md", ".markdown":
-			if err := indexMarkdownFile(store, textIndex, rel, content); err != nil {
+			storeMu.Lock()
+			err := indexMarkdownFile(store, textIndex, rel, content)
+			storeMu.Unlock()
+			if err != nil {
 				collector.Add(rel, err)
 				if reporter != nil {
 					reporter.Increment()
 				}
 				continue
 			}
+			if vectorJobs != nil {
+				mdChunks := ChunkMarkdown(content)
+				vectorJobs <- vectorJob{rel: rel, content: content, mdChunks: mdChunks}
+			}
 		}
-		if err := store.InsertFile(FileEntryFromContent(rel, ext, content)); err != nil {
+		storeMu.Lock()
+		err = store.InsertFile(FileEntryFromContent(rel, ext, content))
+		storeMu.Unlock()
+		if err != nil {
 			collector.Add(rel, err)
 			if reporter != nil {
 				reporter.Increment()
@@ -147,6 +226,16 @@ func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 		}
 		if reporter != nil {
 			reporter.Increment()
+		}
+	}
+	if vectorJobs != nil {
+		if reporter != nil {
+			announcePhase(reporter, "phase:vector waiting")
+		}
+		close(vectorJobs)
+		vectorWG.Wait()
+		if reporter != nil {
+			announcePhase(reporter, "phase:vector done")
 		}
 	}
 
@@ -183,12 +272,40 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 		return err
 	}
 
+	vectorCfg, vectorEnabled, err := LoadVectorConfigOptional()
+	if err != nil {
+		return err
+	}
+	vectorEnabled = vectorEnabled && vectorCfg.VectorEnabled
+
+	collector := newIndexErrorCollector()
+	var storeMu sync.Mutex
+	var vectorRuntime *VectorRuntime
+	if vectorEnabled {
+		runtime, err := NewVectorRuntime(vectorCfg)
+		if err != nil {
+			collector.Add("vector_runtime", err)
+			vectorEnabled = false
+		} else {
+			vectorRuntime = runtime
+			defer vectorRuntime.Close()
+			ctx := context.Background()
+			if err := vectorRuntime.EnsureCollection(ctx); err != nil {
+				collector.Add("vector_runtime", err)
+				vectorEnabled = false
+			} else if reporter != nil {
+				mode := vectorStoreMode(vectorRuntime)
+				announcePhase(reporter, fmt.Sprintf("phase:vector mode=%s batch=%d", mode, vectorCfg.VectorBatchSize))
+			}
+		}
+	}
+
 	if reporter != nil {
+		announcePhase(reporter, fmt.Sprintf("phase:delta files=%d", len(changes)))
 		reporter.Start(len(changes))
 		defer reporter.Finish()
 	}
 
-	collector := newIndexErrorCollector()
 	for _, change := range changes {
 		if change.OldPath != "" && shouldIndex(change.OldPath) {
 			if err := removeFileIndex(store, textIndex, change.OldPath); err != nil {
@@ -202,6 +319,11 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 				if err := removeFileIndex(store, textIndex, change.Path); err != nil {
 					collector.Add(change.Path, err)
 				}
+				if vectorEnabled {
+					if err := deleteVectorByFile(paths.Root, store, change.Path, vectorRuntime, &storeMu); err != nil {
+						collector.Add("vector:"+change.Path, err)
+					}
+				}
 			}
 		default:
 			if !shouldIndex(change.Path) {
@@ -212,6 +334,11 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 			}
 			if err := removeFileIndex(store, textIndex, change.Path); err != nil {
 				collector.Add(change.Path, err)
+			}
+			if vectorEnabled {
+				if err := deleteVectorByFile(paths.Root, store, change.Path, vectorRuntime, &storeMu); err != nil {
+					collector.Add("vector:"+change.Path, err)
+				}
 			}
 			abs := filepath.Join(paths.Root, filepath.FromSlash(change.Path))
 			content, err := os.ReadFile(abs)
@@ -260,6 +387,11 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 						break
 					}
 				}
+				if vectorEnabled {
+					if err := upsertVectorChunks(paths.Root, store, change.Path, content, nil, vectorRuntime, &storeMu); err != nil {
+						collector.Add("vector:"+change.Path, err)
+					}
+				}
 			case ".md", ".markdown":
 				chunks := ChunkMarkdown(content)
 				if len(chunks) == 0 {
@@ -304,6 +436,11 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 					if err := store.InsertTextDoc(change.Path, docID); err != nil {
 						collector.Add(change.Path, err)
 						break
+					}
+				}
+				if vectorEnabled {
+					if err := upsertVectorChunks(paths.Root, store, change.Path, content, chunks, vectorRuntime, &storeMu); err != nil {
+						collector.Add("vector:"+change.Path, err)
 					}
 				}
 			}
@@ -367,6 +504,142 @@ func removeFileIndex(store *SymbolStore, textIndex bleve.Index, rel string) erro
 		return err
 	}
 	return nil
+}
+
+func upsertVectorChunks(root string, store *SymbolStore, rel string, content []byte, mdChunks []MDChunk, runtime *VectorRuntime, storeMu *sync.Mutex) error {
+	if runtime == nil {
+		return nil
+	}
+	ctx := context.Background()
+
+	maxChars := runtime.cfg.VectorMaxChars
+	var chunks []VectorChunk
+	if mdChunks != nil {
+		chunks = BuildMarkdownVectorChunks(rel, mdChunks, maxChars)
+	} else {
+		chunks = BuildGoVectorChunks(rel, content, maxChars)
+	}
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	texts := make([]string, 0, len(chunks))
+	for _, chunk := range chunks {
+		texts = append(texts, chunk.Text)
+	}
+	vectorMap := make(map[int][]float32, len(texts))
+	batchSize := runtime.cfg.VectorBatchSize
+	if batchSize <= 0 {
+		batchSize = 8
+	}
+	for start := 0; start < len(texts); start += batchSize {
+		end := start + batchSize
+		if end > len(texts) {
+			end = len(texts)
+		}
+		vectors, err := runtime.embedder.EmbedTexts(ctx, texts[start:end])
+		if err != nil {
+			return err
+		}
+		for _, v := range vectors {
+			vectorMap[start+v.Index] = v.Vector
+		}
+	}
+
+	points := make([]VectorPoint, 0, len(chunks))
+	vectorIDs := make([]string, 0, len(chunks))
+	for i, chunk := range chunks {
+		vec, ok := vectorMap[i]
+		if !ok {
+			continue
+		}
+		payload := map[string]any{
+			"repo_id":    storeRepoID(root),
+			"path":       chunk.File,
+			"kind":       chunk.Kind,
+			"name":       chunk.Name,
+			"title":      chunk.Title,
+			"line_start": chunk.LineStart,
+			"line_end":   chunk.LineEnd,
+			"hash":       chunk.Hash,
+			"updated_at": time.Now().Unix(),
+		}
+		points = append(points, VectorPoint{
+			ID:      chunk.ID,
+			Vector:  vec,
+			Payload: payload,
+		})
+		vectorIDs = append(vectorIDs, chunk.ID)
+	}
+	if err := runtime.store.UpsertPoints(ctx, runtime.cfg.QdrantCollection, points); err != nil {
+		return err
+	}
+	if storeMu != nil {
+		storeMu.Lock()
+		defer storeMu.Unlock()
+	}
+	for _, id := range vectorIDs {
+		if err := store.InsertVectorDoc(rel, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deleteVectorByFile(root string, store *SymbolStore, rel string, runtime *VectorRuntime, storeMu *sync.Mutex) error {
+	if runtime == nil {
+		return nil
+	}
+	ctx := context.Background()
+	if storeMu != nil {
+		storeMu.Lock()
+	}
+	ids, err := store.ListVectorIDs(rel)
+	if storeMu != nil {
+		storeMu.Unlock()
+	}
+	if err != nil {
+		return err
+	}
+	if len(ids) > 0 {
+		if err := runtime.store.DeletePointsByIDs(ctx, runtime.cfg.QdrantCollection, ids); err != nil {
+			return err
+		}
+	} else {
+		if err := runtime.store.DeletePointsByRepoAndPath(ctx, runtime.cfg.QdrantCollection, storeRepoID(root), rel); err != nil {
+			return err
+		}
+	}
+	if storeMu != nil {
+		storeMu.Lock()
+		defer storeMu.Unlock()
+	}
+	return store.DeleteVectorDocs(rel)
+}
+
+func storeRepoID(root string) string {
+	return repoID(root)
+}
+
+func announcePhase(reporter ProgressReporter, msg string) {
+	if reporter == nil {
+		return
+	}
+	fmt.Fprintln(os.Stderr, msg)
+}
+
+func vectorStoreMode(runtime *VectorRuntime) string {
+	if runtime == nil || runtime.store == nil {
+		return "unknown"
+	}
+	switch runtime.store.(type) {
+	case *LocalVectorStore:
+		return "local"
+	case *QdrantStore:
+		return "qdrant"
+	default:
+		return "unknown"
+	}
 }
 
 func findDocIDsByPath(textIndex bleve.Index, path string) ([]string, error) {
