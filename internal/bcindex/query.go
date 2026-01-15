@@ -81,40 +81,58 @@ func queryMixed(paths RepoPaths, meta *RepoMeta, query string, topK int) ([]Sear
 		return nil, err
 	}
 
-	hitMap := make(map[string]SearchHit)
+	type rankedHit struct {
+		hit      SearchHit
+		priority int
+	}
+	hitMap := make(map[string]rankedHit)
 	for _, hit := range symbolHits {
-		key := fmt.Sprintf("s:%s:%d:%s", hit.File, hit.Line, hit.Name)
+		key := fmt.Sprintf("%s:%d", hit.File, hit.Line)
 		hit.Score = 1.0
-		hitMap[key] = hit
+		hitMap[key] = rankedHit{hit: hit, priority: 2}
 	}
 	for _, hit := range textHits {
-		key := fmt.Sprintf("t:%s:%d", hit.File, hit.Line)
+		key := fmt.Sprintf("%s:%d", hit.File, hit.Line)
 		if existing, ok := hitMap[key]; ok {
-			existing.Score += 0.5
-			if existing.Snippet == "" {
-				existing.Snippet = hit.Snippet
+			if existing.priority == 2 {
+				if existing.hit.Snippet == "" {
+					existing.hit.Snippet = hit.Snippet
+				}
+				hitMap[key] = existing
+				continue
 			}
-			hitMap[key] = existing
+			if hit.Score > existing.hit.Score {
+				hitMap[key] = rankedHit{hit: hit, priority: 1}
+			}
 			continue
 		}
-		hit.Score = 0.6
-		hitMap[key] = hit
+		hitMap[key] = rankedHit{hit: hit, priority: 1}
 	}
 
-	var merged []SearchHit
+	var merged []rankedHit
 	for _, hit := range hitMap {
 		merged = append(merged, hit)
 	}
 	sort.Slice(merged, func(i, j int) bool {
-		if merged[i].Score == merged[j].Score {
-			return merged[i].File < merged[j].File
+		if merged[i].priority != merged[j].priority {
+			return merged[i].priority > merged[j].priority
 		}
-		return merged[i].Score > merged[j].Score
+		if merged[i].hit.Score == merged[j].hit.Score {
+			if merged[i].hit.File == merged[j].hit.File {
+				return merged[i].hit.Line < merged[j].hit.Line
+			}
+			return merged[i].hit.File < merged[j].hit.File
+		}
+		return merged[i].hit.Score > merged[j].hit.Score
 	})
 	if len(merged) > topK {
 		merged = merged[:topK]
 	}
-	return merged, nil
+	results := make([]SearchHit, 0, len(merged))
+	for _, hit := range merged {
+		results = append(results, hit.hit)
+	}
+	return results, nil
 }
 
 func searchText(index bleve.Index, root string, query string, topK int) ([]SearchHit, error) {
@@ -124,10 +142,13 @@ func searchText(index bleve.Index, root string, query string, topK int) ([]Searc
 
 	contentQuery := bleve.NewMatchQuery(query)
 	contentQuery.SetField("content")
+	contentQuery.SetBoost(1.0)
 	pathQuery := bleve.NewMatchQuery(query)
 	pathQuery.SetField("path")
+	pathQuery.SetBoost(1.5)
 	titleQuery := bleve.NewMatchQuery(query)
 	titleQuery.SetField("title")
+	titleQuery.SetBoost(2.0)
 
 	disjunction := bleve.NewDisjunctionQuery(contentQuery, pathQuery, titleQuery)
 

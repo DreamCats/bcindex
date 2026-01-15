@@ -22,7 +22,7 @@ Local guidance for automated agents working in this repository.
 
 ## Change Log Rules
 - 在仓库根目录维护 `CHANGELOG.md`。
-- 每次变更提交前追加一条记录，包含日期、变更内容、影响文件、结果（如测试/构建）。
+- 每次变更提交前追加一条记录，包含日期、版本号、变更内容、影响文件、结果（如测试/构建）。
 - 按时间倒序记录，内容保持简洁。
 
 ## 元信息规则
