@@ -70,6 +70,7 @@ bcindex watch  --root <repo> [--interval 3s] [--debounce 2s] [--progress]
 bcindex query  --root <repo> --q <text> --type <text|symbol|mixed> [--json] [--progress]
 bcindex status --root <repo>
 bcindex version [--root <repo>]
+bcindex config init [--force]
 ```
 
 ## 常见问题
@@ -81,6 +82,41 @@ bcindex version [--root <repo>]
 2) `go run ./bcindex ...` 报错
 - 可执行入口在 `cmd/bcindex`，请使用：
   - `go run ./cmd/bcindex ...`
+
+3) 向量化（Phase 1 配置文件）
+
+配置文件路径：
+```
+~/.bcindex/config/bcindex.yaml
+```
+
+初始化配置：
+```bash
+go run ./cmd/bcindex config init
+```
+
+示例（最简，类似 docs-hub）：
+```yaml
+qdrant_path: "~/.bcindex/qdrant"
+qdrant_collection: "bcindex_vectors"
+qdrant_auto_start: true
+volces_endpoint: "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal"
+volces_api_key: "your_api_key"
+volces_model: "your_model_id"
+volces_dimensions: 1024
+volces_encoding: "float"
+volces_timeout: "30s"
+```
+
+可选字段（需要时再填）：
+```yaml
+qdrant_url: "http://127.0.0.1:6333"
+qdrant_api_key: ""
+qdrant_bin: "qdrant"          # 不填则使用 PATH 中的 qdrant
+qdrant_http_port: 6333
+qdrant_grpc_port: 6334
+volces_instructions: ""
+```
 
 ## 文档参考
 - `reference/BCINDEX_GO_TECH_SPEC.md`
