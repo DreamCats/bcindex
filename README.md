@@ -16,6 +16,13 @@
 - 向量检索/混合检索（Phase 3）
 - MCP stdio API
 
+## 安装
+
+在仓库根目录执行：
+```bash
+go install ./cmd/bcindex
+```
+
 ## 快速开始
 
 1) 初始化与全量索引

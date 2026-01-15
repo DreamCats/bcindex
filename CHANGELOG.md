@@ -9,6 +9,13 @@
 
 ## 2025-01-15
 
+- 版本：0.3.17
+- 变更：补充安装方式（go install）。
+- 影响文件：`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：无
+
+## 2025-01-15
+
 - 版本：0.3.16
 - 变更：支持通过配置项 `query_top_k` 控制默认返回数量（未显式传 --top 时生效）。
 - 影响文件：`internal/bcindex/cli.go`、`internal/bcindex/vector_config.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
