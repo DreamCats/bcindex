@@ -11,6 +11,10 @@ import (
 )
 
 func IndexRepo(root string) error {
+	return IndexRepoWithProgress(root, nil)
+}
+
+func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 	paths, meta, err := InitRepo(root)
 	if err != nil {
 		return err
@@ -50,10 +54,18 @@ func IndexRepo(root string) error {
 		return err
 	}
 
+	indexable := make([]string, 0, len(files))
 	for _, rel := range files {
-		if !shouldIndex(rel) {
-			continue
+		if shouldIndex(rel) {
+			indexable = append(indexable, rel)
 		}
+	}
+	if reporter != nil {
+		reporter.Start(len(indexable))
+		defer reporter.Finish()
+	}
+
+	for _, rel := range indexable {
 		abs := filepath.Join(paths.Root, filepath.FromSlash(rel))
 		content, err := os.ReadFile(abs)
 		if err != nil {
@@ -72,6 +84,9 @@ func IndexRepo(root string) error {
 		}
 		if err := store.InsertFile(FileEntryFromContent(rel, ext, content)); err != nil {
 			return err
+		}
+		if reporter != nil {
+			reporter.Increment()
 		}
 	}
 

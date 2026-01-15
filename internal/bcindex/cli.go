@@ -57,6 +57,7 @@ func runIndex(args []string) int {
 	fs := flag.NewFlagSet("index", flag.ContinueOnError)
 	root := fs.String("root", "", "repo root path")
 	full := fs.Bool("full", true, "full index (only mode in MVP)")
+	progress := fs.Bool("progress", DefaultProgressEnabled(), "show progress")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -69,7 +70,8 @@ func runIndex(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if err := IndexRepo(resolved); err != nil {
+	reporter := NewIndexProgress(*progress)
+	if err := IndexRepoWithProgress(resolved, reporter); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -85,6 +87,7 @@ func runQuery(args []string) int {
 	query := fs.String("q", "", "query text")
 	topK := fs.Int("top", 10, "max results")
 	jsonOut := fs.Bool("json", false, "output JSON")
+	progress := fs.Bool("progress", DefaultProgressEnabled(), "show progress")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -100,7 +103,9 @@ func runQuery(args []string) int {
 		return 1
 	}
 
+	stop := StartSpinner(*progress, "searching")
 	hits, err := QueryRepo(paths, meta, *query, strings.ToLower(*qtype), *topK)
+	stop()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -181,8 +186,8 @@ func printUsage() {
 
 Commands:
   init   --root <repo>
-  index  --root <repo> --full
-  query  --repo <id|path> --q <text> --type <text|symbol|mixed> [--json]
+  index  --root <repo> --full [--progress]
+  query  --repo <id|path> --q <text> --type <text|symbol|mixed> [--json] [--progress]
   status --repo <id|path>
 `)
 }

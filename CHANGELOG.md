@@ -2,6 +2,13 @@
 
 ## 2025-01-15
 
+- 版本：0.1.2
+- 变更：新增索引进度条与查询中 spinner，默认在终端显示。
+- 影响文件：`internal/bcindex/indexer.go`、`internal/bcindex/progress.go`、`internal/bcindex/cli.go`、`README.md`、`go.mod`、`go.sum`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
 - 版本：0.1.1
 - 变更：text 搜索增加标题/路径权重（查询侧 boost），mixed 去重与排序优化（符号优先）。
 - 影响文件：`internal/bcindex/query.go`、`internal/bcindex/text_index.go`、`PROJECT_META.md`、`CHANGELOG.md`。

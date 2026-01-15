@@ -18,7 +18,7 @@
 1) 初始化与全量索引
 ```bash
 go run ./cmd/bcindex init --root .
-go run ./cmd/bcindex index --root . --full
+go run ./cmd/bcindex index --root . --full --progress
 ```
 
 2) 查询示例
@@ -27,6 +27,7 @@ go run ./cmd/bcindex query --root . --q "IndexRepo" --type symbol
 go run ./cmd/bcindex query --root . --q "BCIndex" --type text
 go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed
 go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed --json
+go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed --progress
 ```
 
 3) 查看状态
@@ -49,8 +50,8 @@ go run ./cmd/bcindex status --root .
 
 ```
 bcindex init   --root <repo>
-bcindex index  --root <repo> --full
-bcindex query  --root <repo> --q <text> --type <text|symbol|mixed> [--json]
+bcindex index  --root <repo> --full [--progress]
+bcindex query  --root <repo> --q <text> --type <text|symbol|mixed> [--json] [--progress]
 bcindex status --root <repo>
 ```
 
