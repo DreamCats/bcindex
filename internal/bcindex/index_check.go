@@ -34,3 +34,14 @@ func ensureIndex(paths RepoPaths, qtype string) error {
 	}
 	return nil
 }
+
+func textIndexExists(paths RepoPaths) bool {
+	metaPath := filepath.Join(paths.TextDir, "index_meta.json")
+	_, err := os.Stat(metaPath)
+	return err == nil
+}
+
+func symbolIndexExists(paths RepoPaths) bool {
+	_, err := os.Stat(symbolDBPath(paths))
+	return err == nil
+}

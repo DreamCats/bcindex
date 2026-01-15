@@ -83,6 +83,22 @@ func runIndex(args []string) int {
 	}
 	reporter := NewIndexProgress(*progress)
 	if strings.TrimSpace(*diff) != "" {
+		paths, _, err := InitRepo(resolved)
+		if err == nil {
+			if !textIndexExists(paths) || !symbolIndexExists(paths) {
+				fmt.Fprintln(os.Stderr, "index missing; running full index first")
+				if err := IndexRepoWithProgress(resolved, reporter); err != nil {
+					if warn := (*IndexWarning)(nil); errors.As(err, &warn) {
+						fmt.Fprintln(os.Stderr, warn.Error())
+					} else {
+						fmt.Fprintln(os.Stderr, err)
+						return 1
+					}
+				}
+				fmt.Println(indexCompletionSummary(resolved, false))
+				return 0
+			}
+		}
 		if err := IndexRepoDeltaFromGit(resolved, *diff, reporter); err != nil {
 			if warn := (*IndexWarning)(nil); errors.As(err, &warn) {
 				fmt.Fprintln(os.Stderr, warn.Error())

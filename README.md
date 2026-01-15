@@ -23,6 +23,8 @@ go run ./cmd/bcindex init --root .
 go run ./cmd/bcindex index --root . --full --progress
 ```
 
+说明：`index --full` 会自动初始化仓库元信息与目录，`init` 可选。
+
 1.1) 增量索引（基于 git diff）
 ```bash
 go run ./cmd/bcindex index --root . --diff HEAD~1 --progress

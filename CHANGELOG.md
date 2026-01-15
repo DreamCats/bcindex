@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## 2026-01-15
+
+- 版本：0.3.10
+- 变更：新增本地索引与检索技术方案文档，补充架构、流程与参数说明。
+- 影响文件：`reference/BCINDEX_TECH_SOLUTION.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：无
+
+## 2025-01-15
+
+- 版本：0.3.10
+- 变更：`index --diff` 在索引缺失时自动回退到全量索引，减少首次使用负担；补充 README 提示。
+- 影响文件：`internal/bcindex/cli.go`、`internal/bcindex/index_check.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
 ## 2025-01-15
 
 - 版本：0.3.9
