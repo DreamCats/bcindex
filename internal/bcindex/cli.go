@@ -1,6 +1,7 @@
 package bcindex
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -83,6 +84,7 @@ func runQuery(args []string) int {
 	qtype := fs.String("type", "mixed", "query type: text|symbol|mixed")
 	query := fs.String("q", "", "query text")
 	topK := fs.Int("top", 10, "max results")
+	jsonOut := fs.Bool("json", false, "output JSON")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -102,6 +104,13 @@ func runQuery(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
+	}
+	if *jsonOut {
+		if err := printHitsJSON(hits); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
 	}
 	printHits(hits)
 	return 0
@@ -161,13 +170,19 @@ func printHits(hits []SearchHit) {
 	}
 }
 
+func printHitsJSON(hits []SearchHit) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(hits)
+}
+
 func printUsage() {
 	fmt.Println(`bcindex <command> [options]
 
 Commands:
   init   --root <repo>
   index  --root <repo> --full
-  query  --repo <id|path> --q <text> --type <text|symbol|mixed>
+  query  --repo <id|path> --q <text> --type <text|symbol|mixed> [--json]
   status --repo <id|path>
 `)
 }

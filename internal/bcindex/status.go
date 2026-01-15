@@ -1,6 +1,9 @@
 package bcindex
 
 func RepoStatus(paths RepoPaths, meta *RepoMeta) (Status, error) {
+	if err := ensureIndex(paths, "mixed"); err != nil {
+		return Status{}, err
+	}
 	store, err := OpenSymbolStore(symbolDBPath(paths))
 	if err != nil {
 		return Status{}, err

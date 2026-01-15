@@ -41,12 +41,12 @@ type TextDoc struct {
 }
 
 type SearchHit struct {
-	Kind    string
-	Name    string
-	File    string
-	Line    int
-	Score   float64
-	Snippet string
+	Kind    string  `json:"kind"`
+	Name    string  `json:"name"`
+	File    string  `json:"file"`
+	Line    int     `json:"line"`
+	Score   float64 `json:"score"`
+	Snippet string  `json:"snippet"`
 }
 
 type Status struct {

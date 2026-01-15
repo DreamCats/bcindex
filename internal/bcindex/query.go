@@ -12,6 +12,9 @@ import (
 )
 
 func QueryRepo(paths RepoPaths, meta *RepoMeta, query string, qtype string, topK int) ([]SearchHit, error) {
+	if err := ensureIndex(paths, qtype); err != nil {
+		return nil, err
+	}
 	switch qtype {
 	case "text":
 		return queryText(paths, meta, query, topK)

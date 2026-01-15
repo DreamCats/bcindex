@@ -26,6 +26,7 @@ go run ./cmd/bcindex index --root . --full
 go run ./cmd/bcindex query --root . --q "IndexRepo" --type symbol
 go run ./cmd/bcindex query --root . --q "BCIndex" --type text
 go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed
+go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed --json
 ```
 
 3) 查看状态
@@ -49,7 +50,7 @@ go run ./cmd/bcindex status --root .
 ```
 bcindex init   --root <repo>
 bcindex index  --root <repo> --full
-bcindex query  --root <repo> --q <text> --type <text|symbol|mixed>
+bcindex query  --root <repo> --q <text> --type <text|symbol|mixed> [--json]
 bcindex status --root <repo>
 ```
 

@@ -85,11 +85,11 @@ func ResolveRepo(repoArg, rootArg, cwd string) (RepoPaths, *RepoMeta, error) {
 		if err != nil {
 			return RepoPaths{}, nil, err
 		}
-		meta, err := LoadRepoMeta(paths)
+		meta, err := loadRepoMetaOrHint(paths, absRoot)
 		if err != nil {
-			return RepoPaths{}, nil, fmt.Errorf("repo not initialized: %w", err)
+			return RepoPaths{}, nil, err
 		}
-		return paths, meta, nil
+		return applyMetaRoot(paths, meta), meta, nil
 	}
 
 	if repoArg == "" {
@@ -101,11 +101,11 @@ func ResolveRepo(repoArg, rootArg, cwd string) (RepoPaths, *RepoMeta, error) {
 		if err != nil {
 			return RepoPaths{}, nil, err
 		}
-		meta, err := LoadRepoMeta(paths)
+		meta, err := loadRepoMetaOrHint(paths, root)
 		if err != nil {
-			return RepoPaths{}, nil, fmt.Errorf("repo not initialized: %w", err)
+			return RepoPaths{}, nil, err
 		}
-		return paths, meta, nil
+		return applyMetaRoot(paths, meta), meta, nil
 	}
 
 	if st, err := os.Stat(repoArg); err == nil && st.IsDir() {
@@ -117,22 +117,46 @@ func ResolveRepo(repoArg, rootArg, cwd string) (RepoPaths, *RepoMeta, error) {
 		if err != nil {
 			return RepoPaths{}, nil, err
 		}
-		meta, err := LoadRepoMeta(paths)
+		meta, err := loadRepoMetaOrHint(paths, absRoot)
 		if err != nil {
-			return RepoPaths{}, nil, fmt.Errorf("repo not initialized: %w", err)
+			return RepoPaths{}, nil, err
 		}
-		return paths, meta, nil
+		return applyMetaRoot(paths, meta), meta, nil
 	}
 
 	paths, err := repoPathsFromID(repoArg)
 	if err != nil {
 		return RepoPaths{}, nil, err
 	}
-	meta, err := LoadRepoMeta(paths)
+	meta, err := loadRepoMetaOrHint(paths, "")
 	if err != nil {
-		return RepoPaths{}, nil, fmt.Errorf("repo not initialized: %w", err)
+		return RepoPaths{}, nil, err
 	}
-	return paths, meta, nil
+	return applyMetaRoot(paths, meta), meta, nil
+}
+
+func loadRepoMetaOrHint(paths RepoPaths, root string) (*RepoMeta, error) {
+	meta, err := LoadRepoMeta(paths)
+	if err == nil {
+		return meta, nil
+	}
+	if os.IsNotExist(err) {
+		if root == "" {
+			root = paths.Root
+		}
+		if root != "" {
+			return nil, fmt.Errorf("repo not initialized. run: bcindex index --root %s --full", root)
+		}
+		return nil, fmt.Errorf("repo not initialized. missing %s", paths.MetaFile)
+	}
+	return nil, err
+}
+
+func applyMetaRoot(paths RepoPaths, meta *RepoMeta) RepoPaths {
+	if paths.Root == "" {
+		paths.Root = meta.Root
+	}
+	return paths
 }
 
 func ensureDir(path string) error {
