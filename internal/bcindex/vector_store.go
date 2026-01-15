@@ -34,6 +34,11 @@ type VectorSearchResult struct {
 	Score     float64
 }
 
+type VectorCandidate struct {
+	File string
+	Line int
+}
+
 type QdrantStore struct {
 	client  *QdrantClient
 	cleanup func()
@@ -250,6 +255,82 @@ func (s *LocalVectorStore) SearchSimilar(ctx context.Context, collection string,
 		hits = hits[:topK]
 	}
 	return hits, nil
+}
+
+func (s *LocalVectorStore) SearchSimilarCandidates(ctx context.Context, repoID string, vector []float32, candidates []VectorCandidate, topK int) ([]VectorSearchResult, error) {
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	if topK <= 0 {
+		topK = 10
+	}
+	queryVec, queryNorm := toFloat64Vector(vector)
+	if len(queryVec) == 0 || queryNorm == 0 {
+		return nil, fmt.Errorf("vector query is empty")
+	}
+	uniq := make(map[string]VectorCandidate, len(candidates))
+	for _, cand := range candidates {
+		if cand.File == "" || cand.Line <= 0 {
+			continue
+		}
+		key := fmt.Sprintf("%s:%d", cand.File, cand.Line)
+		uniq[key] = cand
+	}
+	if len(uniq) == 0 {
+		return nil, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stmt, err := s.db.PrepareContext(ctx, `SELECT id, path, kind, name, title, line_start, line_end, vector FROM vectors
+		WHERE repo_id = ? AND path = ? AND line_start <= ? AND line_end >= ?`)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	best := make(map[string]VectorSearchResult, len(uniq))
+	for _, cand := range uniq {
+		rows, err := stmt.QueryContext(ctx, repoID, cand.File, cand.Line, cand.Line)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var id, path, kind, name, title, vectorJSON string
+			var lineStart, lineEnd int
+			if err := rows.Scan(&id, &path, &kind, &name, &title, &lineStart, &lineEnd, &vectorJSON); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			vec, err := decodeVector(vectorJSON)
+			if err != nil {
+				continue
+			}
+			score := cosineSimilarity(queryVec, vec, queryNorm)
+			key := fmt.Sprintf("%s:%d", cand.File, cand.Line)
+			if existing, ok := best[key]; !ok || score > existing.Score {
+				best[key] = VectorSearchResult{
+					ID:        id,
+					File:      path,
+					Kind:      kind,
+					Name:      name,
+					Title:     title,
+					LineStart: cand.Line,
+					LineEnd:   lineEnd,
+					Score:     score,
+				}
+			}
+		}
+		_ = rows.Close()
+	}
+	results := make([]VectorSearchResult, 0, len(best))
+	for _, hit := range best {
+		results = append(results, hit)
+	}
+	sort.Slice(results, func(i, j int) bool { return results[i].Score > results[j].Score })
+	if len(results) > topK {
+		results = results[:topK]
+	}
+	return results, nil
 }
 
 func (s *LocalVectorStore) Close() error {

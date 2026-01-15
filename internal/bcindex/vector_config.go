@@ -33,6 +33,7 @@ type VectorConfig struct {
 	VectorBatchSize int  `yaml:"vector_batch_size"`
 	VectorMaxChars  int  `yaml:"vector_max_chars"`
 	VectorWorkers   int  `yaml:"vector_workers"`
+	VectorRerankTop int  `yaml:"vector_rerank_candidates"`
 }
 
 var ErrVectorConfigNotFound = errors.New("vector config not found")
@@ -93,6 +94,7 @@ func defaultVectorConfig() VectorConfig {
 		VectorBatchSize:  8,
 		VectorMaxChars:   1500,
 		VectorWorkers:    defaultVectorWorkers(),
+		VectorRerankTop:  300,
 	}
 }
 
@@ -130,6 +132,9 @@ func (c *VectorConfig) applyDefaults() {
 	}
 	if c.VectorWorkers == 0 {
 		c.VectorWorkers = defaultVectorWorkers()
+	}
+	if c.VectorRerankTop == 0 {
+		c.VectorRerankTop = 300
 	}
 }
 

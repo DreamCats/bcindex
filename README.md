@@ -130,6 +130,7 @@ volces_instructions: ""
 vector_batch_size: 8
 vector_max_chars: 1500
 vector_workers: 4
+vector_rerank_candidates: 300
 ```
 
 ## 文档参考

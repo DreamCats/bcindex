@@ -81,17 +81,26 @@ func querySymbols(paths RepoPaths, query string, topK int) ([]SearchHit, error) 
 }
 
 func queryMixed(paths RepoPaths, meta *RepoMeta, query string, topK int) ([]SearchHit, error) {
-	textHits, err := queryText(paths, meta, query, topK)
+	vectorCfg, vectorEnabled, err := loadVectorConfigForQuery()
 	if err != nil {
 		return nil, err
 	}
-	symbolHits, err := querySymbols(paths, query, topK)
+	candidateTop := topK
+	if vectorEnabled && vectorCfg.VectorRerankTop > candidateTop {
+		candidateTop = vectorCfg.VectorRerankTop
+	}
+
+	textHits, err := queryText(paths, meta, query, candidateTop)
 	if err != nil {
 		return nil, err
 	}
-	vectorHits, _, err := queryVector(paths, meta, query, topK, false)
+	symbolHits, err := querySymbols(paths, query, candidateTop)
 	if err != nil {
 		return nil, err
+	}
+	vectorHits, err := queryVectorCandidates(paths, meta, query, topK, vectorCfg, vectorEnabled, textHits, symbolHits)
+	if err != nil {
+		vectorHits = nil
 	}
 
 	type rankedHit struct {
@@ -105,7 +114,8 @@ func queryMixed(paths RepoPaths, meta *RepoMeta, query string, topK int) ([]Sear
 	for _, hit := range symbolHits {
 		key := fmt.Sprintf("%s:%d", hit.File, hit.Line)
 		hit.Score = 1.0
-		hitMap[key] = rankedHit{hit: hit, symbol: &hit, priority: 3}
+		h := hit
+		hitMap[key] = rankedHit{hit: h, symbol: &h, priority: 3}
 	}
 	for _, hit := range textHits {
 		key := fmt.Sprintf("%s:%d", hit.File, hit.Line)
@@ -114,31 +124,36 @@ func queryMixed(paths RepoPaths, meta *RepoMeta, query string, topK int) ([]Sear
 				if existing.hit.Snippet == "" {
 					existing.hit.Snippet = hit.Snippet
 				}
-				existing.text = &hit
+				h := hit
+				existing.text = &h
 				hitMap[key] = existing
 				continue
 			}
 			if hit.Score > existing.hit.Score {
-				existing.hit = hit
-				existing.text = &hit
+				h := hit
+				existing.hit = h
+				existing.text = &h
 				existing.priority = 2
 				hitMap[key] = existing
 			}
 			continue
 		}
-		hitMap[key] = rankedHit{hit: hit, text: &hit, priority: 2}
+		h := hit
+		hitMap[key] = rankedHit{hit: h, text: &h, priority: 2}
 	}
 	for _, hit := range vectorHits {
 		key := fmt.Sprintf("%s:%d", hit.File, hit.Line)
 		if existing, ok := hitMap[key]; ok {
-			existing.vector = &hit
+			h := hit
+			existing.vector = &h
 			if existing.hit.Snippet == "" {
 				existing.hit.Snippet = hit.Snippet
 			}
 			hitMap[key] = existing
 			continue
 		}
-		hitMap[key] = rankedHit{hit: hit, vector: &hit, priority: 1}
+		h := hit
+		hitMap[key] = rankedHit{hit: h, vector: &h, priority: 1}
 	}
 
 	var merged []rankedHit
@@ -181,6 +196,56 @@ func queryMixed(paths RepoPaths, meta *RepoMeta, query string, topK int) ([]Sear
 	return results, nil
 }
 
+func queryVectorCandidates(paths RepoPaths, meta *RepoMeta, query string, topK int, cfg VectorConfig, enabled bool, textHits []SearchHit, symbolHits []SearchHit) ([]SearchHit, error) {
+	if !enabled {
+		return nil, nil
+	}
+	if cfg.VectorRerankTop <= 0 {
+		hits, _, err := queryVector(paths, meta, query, topK, false)
+		return hits, err
+	}
+	candidates := make([]VectorCandidate, 0, len(textHits)+len(symbolHits))
+	for _, hit := range textHits {
+		candidates = append(candidates, VectorCandidate{File: hit.File, Line: hit.Line})
+	}
+	for _, hit := range symbolHits {
+		candidates = append(candidates, VectorCandidate{File: hit.File, Line: hit.Line})
+	}
+	runtime, err := NewVectorRuntime(cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer runtime.Close()
+
+	ctx := context.Background()
+	if err := runtime.EnsureCollection(ctx); err != nil {
+		return nil, err
+	}
+	embeddings, err := runtime.embedder.EmbedTexts(ctx, []string{query})
+	if err != nil {
+		return nil, err
+	}
+	if len(embeddings) == 0 {
+		return nil, fmt.Errorf("vector embedding empty")
+	}
+
+	switch store := runtime.store.(type) {
+	case *LocalVectorStore:
+		hits, err := store.SearchSimilarCandidates(ctx, meta.RepoID, embeddings[0].Vector, candidates, topK)
+		if err != nil {
+			return nil, err
+		}
+		return vectorSearchResultsToHits(meta, hits), nil
+	default:
+		// fallback to full vector search when store doesn't support candidate search
+		hits, err := runtime.store.SearchSimilar(ctx, cfg.QdrantCollection, meta.RepoID, embeddings[0].Vector, topK)
+		if err != nil {
+			return nil, err
+		}
+		return vectorSearchResultsToHits(meta, hits), nil
+	}
+}
+
 func queryVector(paths RepoPaths, meta *RepoMeta, query string, topK int, required bool) ([]SearchHit, bool, error) {
 	cfg, ok, err := LoadVectorConfigOptional()
 	if err != nil {
@@ -189,6 +254,12 @@ func queryVector(paths RepoPaths, meta *RepoMeta, query string, topK int, requir
 	if !ok || !cfg.VectorEnabled {
 		if required {
 			return nil, false, fmt.Errorf("vector search requires enabled vector config")
+		}
+		return nil, false, nil
+	}
+	if strings.TrimSpace(cfg.VolcesAPIKey) == "" || strings.TrimSpace(cfg.VolcesModel) == "" {
+		if required {
+			return nil, false, fmt.Errorf("vector search requires volces_api_key and volces_model")
 		}
 		return nil, false, nil
 	}
@@ -213,27 +284,7 @@ func queryVector(paths RepoPaths, meta *RepoMeta, query string, topK int, requir
 	if err != nil {
 		return nil, true, err
 	}
-	results := make([]SearchHit, 0, len(hits))
-	for _, hit := range hits {
-		line := hit.LineStart
-		if line <= 0 {
-			line = 1
-		}
-		snippet := readLine(meta.Root, hit.File, line)
-		if snippet == "" {
-			snippet = strings.TrimSpace(hit.Title)
-		}
-		results = append(results, SearchHit{
-			Kind:    "vector",
-			Source:  "vector",
-			Name:    hit.Name,
-			File:    hit.File,
-			Line:    line,
-			Score:   hit.Score,
-			Snippet: snippet,
-		})
-	}
-	return results, true, nil
+	return vectorSearchResultsToHits(meta, hits), true, nil
 }
 
 func searchText(index bleve.Index, root string, query string, topK int) ([]SearchHit, error) {
@@ -351,4 +402,42 @@ func joinSources(hasSymbol, hasText, hasVector bool) string {
 		parts = append(parts, "vector")
 	}
 	return strings.Join(parts, "+")
+}
+
+func loadVectorConfigForQuery() (VectorConfig, bool, error) {
+	cfg, ok, err := LoadVectorConfigOptional()
+	if err != nil {
+		return VectorConfig{}, false, err
+	}
+	if !ok || !cfg.VectorEnabled {
+		return cfg, false, nil
+	}
+	if strings.TrimSpace(cfg.VolcesAPIKey) == "" || strings.TrimSpace(cfg.VolcesModel) == "" {
+		return cfg, false, nil
+	}
+	return cfg, true, nil
+}
+
+func vectorSearchResultsToHits(meta *RepoMeta, hits []VectorSearchResult) []SearchHit {
+	results := make([]SearchHit, 0, len(hits))
+	for _, hit := range hits {
+		line := hit.LineStart
+		if line <= 0 {
+			line = 1
+		}
+		snippet := readLine(meta.Root, hit.File, line)
+		if snippet == "" {
+			snippet = strings.TrimSpace(hit.Title)
+		}
+		results = append(results, SearchHit{
+			Kind:    "vector",
+			Source:  "vector",
+			Name:    hit.Name,
+			File:    hit.File,
+			Line:    line,
+			Score:   hit.Score,
+			Snippet: snippet,
+		})
+	}
+	return results
 }

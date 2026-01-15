@@ -9,6 +9,13 @@
 
 ## 2025-01-15
 
+- 版本：0.3.12
+- 变更：mixed 查询增加“先过滤再向量”策略，本地向量检索按候选集 rerank（可配置 `vector_rerank_candidates`）。
+- 影响文件：`internal/bcindex/query.go`、`internal/bcindex/vector_store.go`、`internal/bcindex/vector_config.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
 - 版本：0.3.11
 - 变更：索引时自动生成默认向量配置，并在缺少 API Key/Model 时友好提示并降级。
 - 影响文件：`internal/bcindex/indexer.go`、`internal/bcindex/cli.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
