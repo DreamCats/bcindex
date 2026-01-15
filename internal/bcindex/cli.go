@@ -29,6 +29,8 @@ func Run(args []string) int {
 		return runQuery(args[2:])
 	case "status":
 		return runStatus(args[2:])
+	case "version":
+		return runVersion(args[2:])
 	case "help", "-h", "--help":
 		printUsage()
 		return 0
@@ -234,6 +236,48 @@ func runStatus(args []string) int {
 	return 0
 }
 
+func runVersion(args []string) int {
+	fs := flag.NewFlagSet("version", flag.ContinueOnError)
+	root := fs.String("root", "", "repo root path (optional)")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+
+	var candidates []string
+	if strings.TrimSpace(*root) != "" {
+		if abs, err := filepath.Abs(*root); err == nil {
+			candidates = append(candidates, abs)
+		}
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, cwd)
+		if gitRoot, err := findGitRoot(cwd); err == nil {
+			candidates = append(candidates, gitRoot)
+		}
+	}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Dir(exe))
+	}
+
+	seen := make(map[string]struct{})
+	for _, base := range candidates {
+		if base == "" {
+			continue
+		}
+		if _, ok := seen[base]; ok {
+			continue
+		}
+		seen[base] = struct{}{}
+		version, err := ReadVersion(base)
+		if err == nil && version != "" {
+			fmt.Printf("version: %s\n", version)
+			return 0
+		}
+	}
+	fmt.Println("version: unknown")
+	return 0
+}
+
 func resolveRoot(root string) (string, error) {
 	if strings.TrimSpace(root) != "" {
 		return filepath.Abs(root)
@@ -276,6 +320,7 @@ Commands:
   watch  --root <repo> [--interval 3s] [--debounce 2s] [--progress]
   query  --repo <id|path> --q <text> --type <text|symbol|mixed> [--json] [--progress]
   status --repo <id|path>
+  version [--root <repo>]
 `)
 }
 

@@ -45,6 +45,11 @@ go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed --progress
 go run ./cmd/bcindex status --root .
 ```
 
+4) 版本号
+```bash
+go run ./cmd/bcindex version
+```
+
 ## 目录结构
 
 索引数据默认存放于：
@@ -64,6 +69,7 @@ bcindex index  --root <repo> [--full|--diff <rev>] [--progress]
 bcindex watch  --root <repo> [--interval 3s] [--debounce 2s] [--progress]
 bcindex query  --root <repo> --q <text> --type <text|symbol|mixed> [--json] [--progress]
 bcindex status --root <repo>
+bcindex version [--root <repo>]
 ```
 
 ## 常见问题

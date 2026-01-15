@@ -2,6 +2,13 @@
 
 ## 2025-01-15
 
+- 版本：0.1.5
+- 变更：新增 `version` 命令，读取 `PROJECT_META.md` 输出版本号。
+- 影响文件：`internal/bcindex/cli.go`、`internal/bcindex/version.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
 - 版本：0.1.4
 - 变更：watch 增加去抖与批处理，索引过程改为单文件失败可继续，并补充按 path 清理旧文档的兜底逻辑。
 - 影响文件：`internal/bcindex/cli.go`、`internal/bcindex/indexer.go`、`internal/bcindex/diff.go`、`internal/bcindex/symbol_store.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
