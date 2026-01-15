@@ -35,6 +35,7 @@ type VectorConfig struct {
 	VectorWorkers   int  `yaml:"vector_workers"`
 	VectorRerankTop int  `yaml:"vector_rerank_candidates"`
 	VectorOverlap   int  `yaml:"vector_overlap_chars"`
+	QueryTopK       int  `yaml:"query_top_k"`
 }
 
 var ErrVectorConfigNotFound = errors.New("vector config not found")
@@ -46,6 +47,7 @@ type vectorConfigInit struct {
 	VolcesAPIKey     string `yaml:"volces_api_key"`
 	VolcesModel      string `yaml:"volces_model"`
 	VectorEnabled    bool   `yaml:"vector_enabled"`
+	QueryTopK        int    `yaml:"query_top_k"`
 }
 
 func LoadVectorConfig() (VectorConfig, error) {
@@ -97,6 +99,7 @@ func defaultVectorConfig() VectorConfig {
 		VectorWorkers:    defaultVectorWorkers(),
 		VectorRerankTop:  300,
 		VectorOverlap:    80,
+		QueryTopK:        10,
 	}
 }
 
@@ -141,6 +144,9 @@ func (c *VectorConfig) applyDefaults() {
 	if c.VectorOverlap == 0 {
 		c.VectorOverlap = 80
 	}
+	if c.QueryTopK == 0 {
+		c.QueryTopK = 10
+	}
 }
 
 func defaultVectorConfigInit() vectorConfigInit {
@@ -151,6 +157,7 @@ func defaultVectorConfigInit() vectorConfigInit {
 		VolcesAPIKey:     "",
 		VolcesModel:      "",
 		VectorEnabled:    true,
+		QueryTopK:        10,
 	}
 }
 

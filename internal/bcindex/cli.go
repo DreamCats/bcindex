@@ -211,6 +211,7 @@ func runQuery(args []string) int {
 	topK := fs.Int("top", 10, "max results")
 	jsonOut := fs.Bool("json", false, "output JSON")
 	progress := fs.Bool("progress", DefaultProgressEnabled(), "show progress")
+	topProvided := hasFlag(args, "top")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -227,6 +228,13 @@ func runQuery(args []string) int {
 	}
 
 	stop := StartSpinner(*progress, "searching")
+	if !topProvided {
+		if cfg, ok, err := LoadVectorConfigOptional(); err == nil && ok {
+			if cfg.QueryTopK > 0 {
+				*topK = cfg.QueryTopK
+			}
+		}
+	}
 	hits, err := QueryRepo(paths, meta, *query, strings.ToLower(*qtype), *topK)
 	stop()
 	if err != nil {
@@ -351,6 +359,20 @@ func runConfigInit(args []string) int {
 	}
 	fmt.Printf("config: %s\n", created)
 	return 0
+}
+
+func hasFlag(args []string, name string) bool {
+	full := "--" + name
+	short := "-" + name
+	for _, arg := range args {
+		if arg == full || arg == short {
+			return true
+		}
+		if strings.HasPrefix(arg, full+"=") || strings.HasPrefix(arg, short+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveRoot(root string) (string, error) {

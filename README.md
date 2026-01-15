@@ -133,6 +133,7 @@ vector_max_chars: 1500
 vector_workers: 4
 vector_rerank_candidates: 300
 vector_overlap_chars: 80
+query_top_k: 10
 ```
 
 ## 文档参考

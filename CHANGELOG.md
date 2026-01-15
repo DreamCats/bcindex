@@ -9,6 +9,13 @@
 
 ## 2025-01-15
 
+- 版本：0.3.16
+- 变更：支持通过配置项 `query_top_k` 控制默认返回数量（未显式传 --top 时生效）。
+- 影响文件：`internal/bcindex/cli.go`、`internal/bcindex/vector_config.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
 - 版本：0.3.15
 - 变更：向量分块支持超长函数拆分并可配置重叠（`vector_overlap_chars`）。
 - 影响文件：`internal/bcindex/vector_chunks.go`、`internal/bcindex/vector_config.go`、`internal/bcindex/indexer.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
