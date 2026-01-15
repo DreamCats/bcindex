@@ -34,6 +34,7 @@ type VectorConfig struct {
 	VectorMaxChars  int  `yaml:"vector_max_chars"`
 	VectorWorkers   int  `yaml:"vector_workers"`
 	VectorRerankTop int  `yaml:"vector_rerank_candidates"`
+	VectorOverlap   int  `yaml:"vector_overlap_chars"`
 }
 
 var ErrVectorConfigNotFound = errors.New("vector config not found")
@@ -95,6 +96,7 @@ func defaultVectorConfig() VectorConfig {
 		VectorMaxChars:   1500,
 		VectorWorkers:    defaultVectorWorkers(),
 		VectorRerankTop:  300,
+		VectorOverlap:    80,
 	}
 }
 
@@ -135,6 +137,9 @@ func (c *VectorConfig) applyDefaults() {
 	}
 	if c.VectorRerankTop == 0 {
 		c.VectorRerankTop = 300
+	}
+	if c.VectorOverlap == 0 {
+		c.VectorOverlap = 80
 	}
 }
 

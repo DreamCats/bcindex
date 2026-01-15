@@ -4,7 +4,8 @@
 
 ## 功能范围（当前）
 - Go 符号索引（函数、方法、结构体、接口、变量、常量）
-- Markdown 文本分块索引
+- Go 文本索引（函数/方法级分块）
+- Markdown 文本分块索引（标题分块 + 超长段落自动拆分）
 - 文本检索与符号检索（支持 mixed 简单融合）
 - 向量索引写入（Qdrant + Volces embedding）
 - 本地用户目录持久化（`~/.bcindex/`）
@@ -131,6 +132,7 @@ vector_batch_size: 8
 vector_max_chars: 1500
 vector_workers: 4
 vector_rerank_candidates: 300
+vector_overlap_chars: 80
 ```
 
 ## 文档参考

@@ -350,40 +350,12 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 			ext := strings.ToLower(filepath.Ext(change.Path))
 			switch ext {
 			case ".go":
-				doc := TextDoc{
-					Path:      change.Path,
-					Kind:      "file",
-					Content:   string(content),
-					LineStart: 1,
-					LineEnd:   lineCount(content),
-				}
-				if err := textIndex.Index("file:"+change.Path, doc); err != nil {
+				if err := indexGoFile(store, bleveIndexAdapter{index: textIndex}, change.Path, content); err != nil {
 					collector.Add(change.Path, err)
 					if reporter != nil {
 						reporter.Increment()
 					}
 					continue
-				}
-				if err := store.InsertTextDoc(change.Path, "file:"+change.Path); err != nil {
-					collector.Add(change.Path, err)
-					if reporter != nil {
-						reporter.Increment()
-					}
-					continue
-				}
-				symbols, err := ExtractGoSymbols(change.Path, content)
-				if err != nil {
-					collector.Add(change.Path, err)
-					if reporter != nil {
-						reporter.Increment()
-					}
-					continue
-				}
-				for _, sym := range symbols {
-					if err := store.InsertSymbol(sym); err != nil {
-						collector.Add(change.Path, err)
-						break
-					}
 				}
 				if vectorEnabled {
 					if err := upsertVectorChunks(paths.Root, store, change.Path, content, nil, vectorRuntime, &storeMu); err != nil {
@@ -515,7 +487,7 @@ func upsertVectorChunks(root string, store *SymbolStore, rel string, content []b
 	if mdChunks != nil {
 		chunks = BuildMarkdownVectorChunks(rel, mdChunks, maxChars)
 	} else {
-		chunks = BuildGoVectorChunks(rel, content, maxChars)
+		chunks = BuildGoVectorChunks(rel, content, maxChars, runtime.cfg.VectorOverlap)
 	}
 	if len(chunks) == 0 {
 		return nil
@@ -695,19 +667,53 @@ func indexGoFile(store *SymbolStore, textIndex TextIndexer, rel string, content 
 		}
 	}
 
-	doc := TextDoc{
-		Path:      rel,
-		Kind:      "file",
-		Content:   string(content),
-		LineStart: 1,
-		LineEnd:   lineCount(content),
+	return indexGoTextDocs(store, textIndex, rel, content)
+}
+
+type bleveIndexAdapter struct {
+	index bleve.Index
+}
+
+func (b bleveIndexAdapter) IndexDoc(id string, doc TextDoc) error {
+	return b.index.Index(id, doc)
+}
+
+func (b bleveIndexAdapter) Close() error {
+	return nil
+}
+
+func indexGoTextDocs(store *SymbolStore, textIndex TextIndexer, rel string, content []byte) error {
+	chunks := BuildGoVectorChunks(rel, content, 0, 0)
+	if len(chunks) == 0 {
+		doc := TextDoc{
+			Path:      rel,
+			Kind:      "file",
+			Content:   string(content),
+			LineStart: 1,
+			LineEnd:   lineCount(content),
+		}
+		docID := "file:" + rel
+		if err := textIndex.IndexDoc(docID, doc); err != nil {
+			return err
+		}
+		return store.InsertTextDoc(rel, docID)
 	}
-	docID := "file:" + rel
-	if err := textIndex.IndexDoc(docID, doc); err != nil {
-		return err
-	}
-	if err := store.InsertTextDoc(rel, docID); err != nil {
-		return err
+	for _, chunk := range chunks {
+		docID := fmt.Sprintf("go:%s:%d", rel, chunk.LineStart)
+		doc := TextDoc{
+			Path:      rel,
+			Kind:      chunk.Kind,
+			Title:     chunk.Name,
+			Content:   chunk.Text,
+			LineStart: chunk.LineStart,
+			LineEnd:   chunk.LineEnd,
+		}
+		if err := textIndex.IndexDoc(docID, doc); err != nil {
+			return err
+		}
+		if err := store.InsertTextDoc(rel, docID); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -9,6 +9,27 @@
 
 ## 2025-01-15
 
+- 版本：0.3.15
+- 变更：向量分块支持超长函数拆分并可配置重叠（`vector_overlap_chars`）。
+- 影响文件：`internal/bcindex/vector_chunks.go`、`internal/bcindex/vector_config.go`、`internal/bcindex/indexer.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
+- 版本：0.3.14
+- 变更：Markdown 分块支持超长段落拆分，降低单块长度。
+- 影响文件：`internal/bcindex/markdown.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
+- 版本：0.3.13
+- 变更：Go 文本索引改为函数/方法级分块，增量索引同步更新。
+- 影响文件：`internal/bcindex/indexer.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2025-01-15
+
 - 版本：0.3.12
 - 变更：mixed 查询增加“先过滤再向量”策略，本地向量检索按候选集 rerank（可配置 `vector_rerank_candidates`）。
 - 影响文件：`internal/bcindex/query.go`、`internal/bcindex/vector_store.go`、`internal/bcindex/vector_config.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。

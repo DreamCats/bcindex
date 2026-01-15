@@ -3,13 +3,14 @@ package bcindex
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"strings"
 )
 
-func BuildGoVectorChunks(file string, content []byte, maxChars int) []VectorChunk {
+func BuildGoVectorChunks(file string, content []byte, maxChars int, overlap int) []VectorChunk {
 	fset := token.NewFileSet()
 	parsed, err := parser.ParseFile(fset, file, content, parser.ParseComments)
 	if err != nil {
@@ -38,11 +39,6 @@ func BuildGoVectorChunks(file string, content []byte, maxChars int) []VectorChun
 		if endOff > len(content) {
 			endOff = len(content)
 		}
-		text := strings.TrimSpace(string(content[startOff:endOff]))
-		text = truncateText(text, maxChars)
-		if text == "" {
-			continue
-		}
 		kind := "go_func"
 		name := fn.Name.Name
 		if fn.Recv != nil && len(fn.Recv.List) > 0 {
@@ -54,6 +50,30 @@ func BuildGoVectorChunks(file string, content []byte, maxChars int) []VectorChun
 		}
 		startLine := fset.Position(startPos).Line
 		endLine := fset.Position(endPos).Line
+		text := strings.TrimSpace(string(content[startOff:endOff]))
+		if text == "" {
+			continue
+		}
+		if maxChars > 0 && countChars(text) > maxChars {
+			subs := splitTextByChars(text, maxChars, overlap)
+			for i, sub := range subs {
+				chunkID := fmt.Sprintf("%s#%d", name, i+1)
+				hash := sha1.Sum([]byte(file + ":" + chunkID + ":" + sub))
+				hashHex := hex.EncodeToString(hash[:])
+				out = append(out, VectorChunk{
+					ID:        "vec:" + file + ":" + hashHex,
+					File:      file,
+					Kind:      kind,
+					Name:      name,
+					Title:     chunkID,
+					Text:      sub,
+					LineStart: startLine,
+					LineEnd:   endLine,
+					Hash:      hashHex,
+				})
+			}
+			continue
+		}
 		hash := sha1.Sum([]byte(file + ":" + name + ":" + text))
 		hashHex := hex.EncodeToString(hash[:])
 		out = append(out, VectorChunk{
@@ -105,4 +125,38 @@ func truncateText(text string, maxChars int) string {
 		return text
 	}
 	return string(runes[:maxChars])
+}
+
+func splitTextByChars(text string, maxChars int, overlap int) []string {
+	text = strings.TrimSpace(text)
+	if maxChars <= 0 || len(text) <= maxChars {
+		return []string{text}
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+	runes := []rune(text)
+	if len(runes) <= maxChars {
+		return []string{text}
+	}
+	step := maxChars - overlap
+	if step <= 0 {
+		step = maxChars
+	}
+	var out []string
+	for start := 0; start < len(runes); start += step {
+		end := start + maxChars
+		if end > len(runes) {
+			end = len(runes)
+		}
+		out = append(out, string(runes[start:end]))
+		if end == len(runes) {
+			break
+		}
+	}
+	return out
+}
+
+func countChars(text string) int {
+	return len([]rune(text))
 }
