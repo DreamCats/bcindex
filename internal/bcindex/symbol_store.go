@@ -1,0 +1,119 @@
+package bcindex
+
+import (
+	"database/sql"
+	"fmt"
+
+	_ "modernc.org/sqlite"
+)
+
+type SymbolStore struct {
+	db *sql.DB
+}
+
+func OpenSymbolStore(path string) (*SymbolStore, error) {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	return &SymbolStore{db: db}, nil
+}
+
+func (s *SymbolStore) Close() error {
+	return s.db.Close()
+}
+
+func (s *SymbolStore) InitSchema() error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS symbols (
+			id INTEGER PRIMARY KEY,
+			name TEXT,
+			kind TEXT,
+			file TEXT,
+			line INTEGER,
+			pkg TEXT,
+			recv TEXT,
+			doc TEXT
+		);`,
+		`CREATE TABLE IF NOT EXISTS refs (
+			symbol_id INTEGER,
+			file TEXT,
+			line INTEGER
+		);`,
+		`CREATE TABLE IF NOT EXISTS files (
+			path TEXT PRIMARY KEY,
+			hash TEXT,
+			lang TEXT,
+			size INTEGER,
+			mtime INTEGER
+		);`,
+		`DELETE FROM symbols;`,
+		`DELETE FROM refs;`,
+		`DELETE FROM files;`,
+	}
+	for _, stmt := range stmts {
+		if _, err := s.db.Exec(stmt); err != nil {
+			return fmt.Errorf("init schema: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *SymbolStore) InsertSymbol(sym Symbol) error {
+	_, err := s.db.Exec(
+		`INSERT INTO symbols (name, kind, file, line, pkg, recv, doc) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		sym.Name, sym.Kind, sym.File, sym.Line, sym.Pkg, sym.Recv, sym.Doc,
+	)
+	if err != nil {
+		return fmt.Errorf("insert symbol: %w", err)
+	}
+	return nil
+}
+
+func (s *SymbolStore) InsertFile(file FileEntry) error {
+	_, err := s.db.Exec(
+		`INSERT OR REPLACE INTO files (path, hash, lang, size, mtime) VALUES (?, ?, ?, ?, ?)`,
+		file.Path, file.Hash, file.Lang, file.Size, file.Mtime,
+	)
+	if err != nil {
+		return fmt.Errorf("insert file: %w", err)
+	}
+	return nil
+}
+
+func (s *SymbolStore) CountSymbols() (int, error) {
+	row := s.db.QueryRow(`SELECT COUNT(1) FROM symbols`)
+	var count int
+	if err := row.Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (s *SymbolStore) SearchSymbols(query string, limit int) ([]Symbol, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := s.db.Query(
+		`SELECT name, kind, file, line, pkg, recv, doc
+		 FROM symbols
+		 WHERE name LIKE ?
+		 ORDER BY CASE WHEN name = ? THEN 0 ELSE 1 END, length(name), name
+		 LIMIT ?`,
+		query+"%", query, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query symbols: %w", err)
+	}
+	defer rows.Close()
+
+	var symbols []Symbol
+	for rows.Next() {
+		var sym Symbol
+		if err := rows.Scan(&sym.Name, &sym.Kind, &sym.File, &sym.Line, &sym.Pkg, &sym.Recv, &sym.Doc); err != nil {
+			return nil, fmt.Errorf("scan symbol: %w", err)
+		}
+		symbols = append(symbols, sym)
+	}
+	return symbols, nil
+}
