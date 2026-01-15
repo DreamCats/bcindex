@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func Run(args []string) int {
@@ -19,6 +20,8 @@ func Run(args []string) int {
 		return runInit(args[2:])
 	case "index":
 		return runIndex(args[2:])
+	case "watch":
+		return runWatch(args[2:])
 	case "query":
 		return runQuery(args[2:])
 	case "status":
@@ -56,13 +59,14 @@ func runInit(args []string) int {
 func runIndex(args []string) int {
 	fs := flag.NewFlagSet("index", flag.ContinueOnError)
 	root := fs.String("root", "", "repo root path")
-	full := fs.Bool("full", true, "full index (only mode in MVP)")
+	full := fs.Bool("full", false, "full index")
+	diff := fs.String("diff", "", "git diff revision for incremental index")
 	progress := fs.Bool("progress", DefaultProgressEnabled(), "show progress")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
-	if !*full {
-		fmt.Fprintln(os.Stderr, "only full index is supported in MVP")
+	if *full && strings.TrimSpace(*diff) != "" {
+		fmt.Fprintln(os.Stderr, "cannot use --full with --diff")
 		return 1
 	}
 	resolved, err := resolveRoot(*root)
@@ -71,12 +75,51 @@ func runIndex(args []string) int {
 		return 1
 	}
 	reporter := NewIndexProgress(*progress)
+	if strings.TrimSpace(*diff) != "" {
+		if err := IndexRepoDeltaFromGit(resolved, *diff, reporter); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Println("index completed (diff)")
+		return 0
+	}
 	if err := IndexRepoWithProgress(resolved, reporter); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	fmt.Println("index completed")
 	return 0
+}
+
+func runWatch(args []string) int {
+	fs := flag.NewFlagSet("watch", flag.ContinueOnError)
+	root := fs.String("root", "", "repo root path")
+	interval := fs.Duration("interval", 3*time.Second, "poll interval")
+	progress := fs.Bool("progress", DefaultProgressEnabled(), "show progress")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+	resolved, err := resolveRoot(*root)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	fmt.Printf("watching %s (interval %s)\n", resolved, interval.String())
+	for {
+		changes, err := gitStatusChanges(resolved)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			time.Sleep(*interval)
+			continue
+		}
+		if len(changes) > 0 {
+			reporter := NewIndexProgress(*progress)
+			if err := IndexRepoDelta(resolved, changes, reporter); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+			}
+		}
+		time.Sleep(*interval)
+	}
 }
 
 func runQuery(args []string) int {
@@ -186,7 +229,8 @@ func printUsage() {
 
 Commands:
   init   --root <repo>
-  index  --root <repo> --full [--progress]
+  index  --root <repo> [--full|--diff <rev>] [--progress]
+  watch  --root <repo> [--interval 3s] [--progress]
   query  --repo <id|path> --q <text> --type <text|symbol|mixed> [--json] [--progress]
   status --repo <id|path>
 `)

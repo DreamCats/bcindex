@@ -10,6 +10,10 @@ func RepoStatus(paths RepoPaths, meta *RepoMeta) (Status, error) {
 	}
 	defer store.Close()
 
+	if err := store.InitSchema(false); err != nil {
+		return Status{}, err
+	}
+
 	symbolCount, err := store.CountSymbols()
 	if err != nil {
 		return Status{}, err

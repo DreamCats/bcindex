@@ -21,6 +21,16 @@ go run ./cmd/bcindex init --root .
 go run ./cmd/bcindex index --root . --full --progress
 ```
 
+1.1) 增量索引（基于 git diff）
+```bash
+go run ./cmd/bcindex index --root . --diff HEAD~1 --progress
+```
+
+1.2) 监听模式（轮询）
+```bash
+go run ./cmd/bcindex watch --root . --interval 3s --progress
+```
+
 2) 查询示例
 ```bash
 go run ./cmd/bcindex query --root . --q "IndexRepo" --type symbol
@@ -50,7 +60,8 @@ go run ./cmd/bcindex status --root .
 
 ```
 bcindex init   --root <repo>
-bcindex index  --root <repo> --full [--progress]
+bcindex index  --root <repo> [--full|--diff <rev>] [--progress]
+bcindex watch  --root <repo> [--interval 3s] [--progress]
 bcindex query  --root <repo> --q <text> --type <text|symbol|mixed> [--json] [--progress]
 bcindex status --root <repo>
 ```

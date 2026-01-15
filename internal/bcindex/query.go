@@ -48,6 +48,10 @@ func querySymbols(paths RepoPaths, query string, topK int) ([]SearchHit, error) 
 	}
 	defer store.Close()
 
+	if err := store.InitSchema(false); err != nil {
+		return nil, err
+	}
+
 	symbols, err := store.SearchSymbols(query, topK)
 	if err != nil {
 		return nil, err

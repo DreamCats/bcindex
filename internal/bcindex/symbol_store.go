@@ -23,7 +23,7 @@ func (s *SymbolStore) Close() error {
 	return s.db.Close()
 }
 
-func (s *SymbolStore) InitSchema() error {
+func (s *SymbolStore) InitSchema(reset bool) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS symbols (
 			id INTEGER PRIMARY KEY,
@@ -47,13 +47,27 @@ func (s *SymbolStore) InitSchema() error {
 			size INTEGER,
 			mtime INTEGER
 		);`,
-		`DELETE FROM symbols;`,
-		`DELETE FROM refs;`,
-		`DELETE FROM files;`,
+		`CREATE TABLE IF NOT EXISTS text_docs (
+			file TEXT,
+			doc_id TEXT
+		);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
 			return fmt.Errorf("init schema: %w", err)
+		}
+	}
+	if reset {
+		resetStmts := []string{
+			`DELETE FROM symbols;`,
+			`DELETE FROM refs;`,
+			`DELETE FROM files;`,
+			`DELETE FROM text_docs;`,
+		}
+		for _, stmt := range resetStmts {
+			if _, err := s.db.Exec(stmt); err != nil {
+				return fmt.Errorf("reset schema: %w", err)
+			}
 		}
 	}
 	return nil
@@ -79,6 +93,56 @@ func (s *SymbolStore) InsertFile(file FileEntry) error {
 		return fmt.Errorf("insert file: %w", err)
 	}
 	return nil
+}
+
+func (s *SymbolStore) DeleteFile(path string) error {
+	_, err := s.db.Exec(`DELETE FROM files WHERE path = ?`, path)
+	if err != nil {
+		return fmt.Errorf("delete file: %w", err)
+	}
+	return nil
+}
+
+func (s *SymbolStore) DeleteSymbolsByFile(path string) error {
+	_, err := s.db.Exec(`DELETE FROM symbols WHERE file = ?`, path)
+	if err != nil {
+		return fmt.Errorf("delete symbols: %w", err)
+	}
+	return nil
+}
+
+func (s *SymbolStore) InsertTextDoc(file, docID string) error {
+	_, err := s.db.Exec(`INSERT INTO text_docs (file, doc_id) VALUES (?, ?)`, file, docID)
+	if err != nil {
+		return fmt.Errorf("insert text doc: %w", err)
+	}
+	return nil
+}
+
+func (s *SymbolStore) DeleteTextDocs(file string) error {
+	_, err := s.db.Exec(`DELETE FROM text_docs WHERE file = ?`, file)
+	if err != nil {
+		return fmt.Errorf("delete text docs: %w", err)
+	}
+	return nil
+}
+
+func (s *SymbolStore) ListTextDocIDs(file string) ([]string, error) {
+	rows, err := s.db.Query(`SELECT doc_id FROM text_docs WHERE file = ?`, file)
+	if err != nil {
+		return nil, fmt.Errorf("list text docs: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan text doc: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func (s *SymbolStore) CountSymbols() (int, error) {
