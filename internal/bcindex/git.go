@@ -46,13 +46,25 @@ func listTrackedFiles(root string) ([]string, error) {
 }
 
 func walkFiles(root string) ([]string, error) {
+	cfg, _, err := LoadIndexConfigOptional()
+	if err != nil {
+		cfg = defaultIndexConfig()
+	}
+	filter := NewFileFilter(cfg, root)
+	filter.loadGitignore(root)
+
 	var files []string
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" {
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			rel = filepath.ToSlash(rel)
+			if !filter.ShouldIndex(rel + "/") {
 				return filepath.SkipDir
 			}
 			return nil
@@ -61,8 +73,9 @@ func walkFiles(root string) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		if shouldIndex(rel) {
-			files = append(files, filepath.ToSlash(rel))
+		rel = filepath.ToSlash(rel)
+		if filter.ShouldIndex(rel) {
+			files = append(files, rel)
 		}
 		return nil
 	})
@@ -73,6 +86,11 @@ func walkFiles(root string) ([]string, error) {
 }
 
 func shouldIndex(rel string) bool {
+	filter := GetGlobalFilter()
+	if filter != nil {
+		return filter.ShouldIndex(rel)
+	}
+
 	ext := strings.ToLower(filepath.Ext(rel))
 	switch ext {
 	case ".go", ".md", ".markdown":

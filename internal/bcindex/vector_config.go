@@ -48,6 +48,9 @@ type vectorConfigInit struct {
 	VolcesModel      string `yaml:"volces_model"`
 	VectorEnabled    bool   `yaml:"vector_enabled"`
 	QueryTopK        int    `yaml:"query_top_k"`
+	ExcludeDirs      []string `yaml:"exclude_dirs"`
+	Exclude          []string `yaml:"exclude"`
+	UseGitignore     bool     `yaml:"use_gitignore"`
 }
 
 type appConfigInit struct {
@@ -156,6 +159,7 @@ func (c *VectorConfig) applyDefaults() {
 }
 
 func defaultVectorConfigInit() vectorConfigInit {
+	defaultCfg := defaultIndexConfig()
 	return vectorConfigInit{
 		QdrantPath:       defaultQdrantPath(),
 		QdrantCollection: "bcindex_vectors",
@@ -164,6 +168,9 @@ func defaultVectorConfigInit() vectorConfigInit {
 		VolcesModel:      "",
 		VectorEnabled:    true,
 		QueryTopK:        10,
+		ExcludeDirs:      defaultCfg.ExcludeDirs,
+		Exclude:          defaultCfg.Exclude,
+		UseGitignore:     defaultCfg.UseGitignore,
 	}
 }
 

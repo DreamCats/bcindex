@@ -17,7 +17,10 @@ const (
 )
 
 type IndexConfig struct {
-	Tier string `yaml:"tier"`
+	Tier        string   `yaml:"tier"`
+	ExcludeDirs []string `yaml:"exclude_dirs"`
+	Exclude     []string `yaml:"exclude"`
+	UseGitignore bool    `yaml:"use_gitignore"`
 }
 
 type IndexOptions struct {
@@ -25,7 +28,12 @@ type IndexOptions struct {
 }
 
 func defaultIndexConfig() IndexConfig {
-	return IndexConfig{Tier: string(IndexTierFast)}
+	return IndexConfig{
+		Tier:        string(IndexTierFast),
+		ExcludeDirs: []string{".git", "vendor", "node_modules", ".venv", "venv", "__pycache__"},
+		Exclude:     []string{"*.min.js", "*.min.css", "*.pb.go", "*.gen.go"},
+		UseGitignore: true,
+	}
 }
 
 func (c *IndexConfig) applyDefaults() error {
@@ -67,7 +75,10 @@ func LoadIndexConfigOptional() (IndexConfig, bool, error) {
 		return defaultIndexConfig(), false, err
 	}
 	var wrapper struct {
-		Index IndexConfig `yaml:"index"`
+		Index      IndexConfig `yaml:"index"`
+		ExcludeDirs []string   `yaml:"exclude_dirs"`
+		Exclude     []string   `yaml:"exclude"`
+		UseGitignore bool      `yaml:"use_gitignore"`
 	}
 	if err := yaml.Unmarshal(data, &wrapper); err != nil {
 		return defaultIndexConfig(), true, fmt.Errorf("parse index config: %w", err)
@@ -75,6 +86,15 @@ func LoadIndexConfigOptional() (IndexConfig, bool, error) {
 	cfg := wrapper.Index
 	if err := cfg.applyDefaults(); err != nil {
 		return defaultIndexConfig(), true, err
+	}
+	if len(wrapper.ExcludeDirs) > 0 {
+		cfg.ExcludeDirs = wrapper.ExcludeDirs
+	}
+	if len(wrapper.Exclude) > 0 {
+		cfg.Exclude = wrapper.Exclude
+	}
+	if wrapper.UseGitignore {
+		cfg.UseGitignore = wrapper.UseGitignore
 	}
 	return cfg, true, nil
 }

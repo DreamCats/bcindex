@@ -84,6 +84,15 @@ func IndexRepoWithOptions(root string, reporter ProgressReporter, opts IndexOpti
 		return err
 	}
 
+	cfg, _, err := LoadIndexConfigOptional()
+	if err != nil {
+		return err
+	}
+	_, err = InitFileFilter(cfg, paths.Root)
+	if err != nil {
+		return err
+	}
+
 	if err := os.RemoveAll(paths.TextDir); err != nil {
 		return fmt.Errorf("reset text index: %w", err)
 	}
@@ -289,6 +298,16 @@ func IndexRepoDeltaWithOptions(root string, changes []FileChange, reporter Progr
 	if err != nil {
 		return err
 	}
+
+	cfg, _, err := LoadIndexConfigOptional()
+	if err != nil {
+		return err
+	}
+	_, err = InitFileFilter(cfg, paths.Root)
+	if err != nil {
+		return err
+	}
+
 	if err := ensureIndex(paths, "mixed"); err != nil {
 		return err
 	}
