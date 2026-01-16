@@ -15,15 +15,15 @@ import (
 
 // Indexer handles the complete indexing pipeline
 type Indexer struct {
-	cfg            *config.Config
-	db             *store.DB
-	pipeline       *ast.Pipeline
-	embedService   *embedding.Service
-	semanticGen    *semantic.Generator
-	symbolStore    *store.SymbolStore
-	packageStore   *store.PackageStore
-	edgeStore      *store.EdgeStore
-	vectorStore    *store.VectorStore
+	cfg          *config.Config
+	db           *store.DB
+	pipeline     *ast.Pipeline
+	embedService *embedding.Service
+	semanticGen  *semantic.Generator
+	symbolStore  *store.SymbolStore
+	packageStore *store.PackageStore
+	edgeStore    *store.EdgeStore
+	vectorStore  *store.VectorStore
 }
 
 // NewIndexer creates a new indexer
@@ -63,6 +63,14 @@ func NewIndexer(cfg *config.Config) (*Indexer, error) {
 // IndexRepository indexes a repository with embeddings
 func (idx *Indexer) IndexRepository(ctx context.Context, repoPath string) error {
 	startTime := time.Now()
+	targetRepoPath := idx.cfg.Repo.Path
+	if targetRepoPath == "" {
+		targetRepoPath = repoPath
+	}
+
+	if err := idx.resetRepository(targetRepoPath); err != nil {
+		return err
+	}
 
 	// Step 1: Extract symbols and relations
 	log.Printf("Extracting symbols and relations from %s", repoPath)
@@ -106,6 +114,26 @@ func (idx *Indexer) IndexRepository(ctx context.Context, repoPath string) error 
 
 	duration := time.Since(startTime)
 	log.Printf("Indexing completed in %v", duration)
+
+	return nil
+}
+
+func (idx *Indexer) resetRepository(repoPath string) error {
+	count, err := idx.symbolStore.CountByRepo(repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to check existing symbols: %w", err)
+	}
+	if count == 0 {
+		return nil
+	}
+
+	log.Printf("Existing index found for %s (%d symbols), clearing", repoPath, count)
+	if err := idx.packageStore.DeleteByRepo(repoPath); err != nil {
+		return fmt.Errorf("failed to clear packages: %w", err)
+	}
+	if err := idx.symbolStore.DeleteByRepo(repoPath); err != nil {
+		return fmt.Errorf("failed to clear symbols: %w", err)
+	}
 
 	return nil
 }
@@ -255,7 +283,7 @@ func (idx *Indexer) indexEmbeddings(ctx context.Context, symbols []*ast.Extracte
 	toEmbed := make([]*ast.ExtractedSymbol, 0)
 	for _, sym := range symbols {
 		if sym.Kind == "func" || sym.Kind == "method" ||
-		   sym.Kind == "struct" || sym.Kind == "interface" {
+			sym.Kind == "struct" || sym.Kind == "interface" {
 			toEmbed = append(toEmbed, sym)
 		}
 	}

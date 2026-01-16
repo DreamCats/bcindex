@@ -4,14 +4,15 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 
 	"github.com/DreamCats/bcindex/internal/config"
 )
 
 // Service provides embedding generation functionality
 type Service struct {
-	cfg     *config.EmbeddingConfig
-	client  Client
+	cfg    *config.EmbeddingConfig
+	client Client
 }
 
 // Client is the interface for embedding API clients
@@ -80,6 +81,8 @@ func (s *Service) EmbedBatch(ctx context.Context, texts []string) ([][]float32, 
 	}
 
 	results := make([][]float32, len(texts))
+	isTTY := stdoutIsTerminal()
+	total := len(validTexts)
 
 	for i := 0; i < len(validTexts); i += batchSize {
 		end := i + batchSize
@@ -97,6 +100,12 @@ func (s *Service) EmbedBatch(ctx context.Context, texts []string) ([][]float32, 
 		for j, emb := range embeddings {
 			results[validIndices[i+j]] = emb
 		}
+
+		printEmbeddingProgress(isTTY, end, total)
+	}
+
+	if isTTY && total > 0 {
+		fmt.Println()
 	}
 
 	return results, nil
@@ -143,4 +152,26 @@ func L2Distance(a, b []float32) float32 {
 	}
 
 	return float32(math.Sqrt(float64(sum)))
+}
+
+func stdoutIsTerminal() bool {
+	info, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) != 0
+}
+
+func printEmbeddingProgress(isTTY bool, processed, total int) {
+	if total == 0 {
+		return
+	}
+
+	percent := float64(processed) * 100 / float64(total)
+	if isTTY {
+		fmt.Printf("\rEmbedding progress: %d/%d (%.1f%%)", processed, total, percent)
+		return
+	}
+
+	fmt.Printf("Embedding progress: %d/%d (%.1f%%)\n", processed, total, percent)
 }

@@ -13,11 +13,11 @@ import (
 
 // VolcEngineClient implements Client for VolcEngine's multimodal embedding API
 type VolcEngineClient struct {
-	apiKey   string
-	endpoint string
-	model    string
+	apiKey     string
+	endpoint   string
+	model      string
 	dimensions int
-	client   *http.Client
+	client     *http.Client
 }
 
 // VolcEngineEmbeddingRequest is the request format for VolcEngine API
@@ -36,17 +36,19 @@ type VolcEngineInput struct {
 
 // VolcEngineEmbeddingResponse is the response from VolcEngine API
 type VolcEngineEmbeddingResponse struct {
-	ID     string `json:"id"`
-	Model  string `json:"model"`
-	Object string `json:"object"`
-	Data   []struct {
-		Embedding []float32 `json:"embedding"`
-		Object    string    `json:"object"`
-	} `json:"data"`
-	Usage struct {
+	ID     string          `json:"id"`
+	Model  string          `json:"model"`
+	Object string          `json:"object"`
+	Data   json.RawMessage `json:"data"`
+	Usage  struct {
 		TotalTokens int `json:"total_tokens"`
 	} `json:"usage"`
 	Created int64 `json:"created"`
+}
+
+type VolcEngineEmbeddingData struct {
+	Embedding []float32 `json:"embedding"`
+	Object    string    `json:"object"`
 }
 
 // NewVolcEngineClient creates a new VolcEngine embedding client
@@ -66,9 +68,9 @@ func NewVolcEngineClient(cfg *config.EmbeddingConfig) (*VolcEngineClient, error)
 	}
 
 	return &VolcEngineClient{
-		apiKey:   cfg.APIKey,
-		endpoint: endpoint,
-		model:    model,
+		apiKey:     cfg.APIKey,
+		endpoint:   endpoint,
+		model:      model,
 		dimensions: cfg.Dimensions,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
@@ -94,14 +96,26 @@ func (c *VolcEngineClient) EmbedBatch(ctx context.Context, texts []string) ([][]
 		return nil, nil
 	}
 
-	// Build request inputs
-	inputs := make([]VolcEngineInput, len(texts))
+	// The multimodal embeddings endpoint accepts a single sample per request.
+	// Loop to support batch semantics.
+	embeddings := make([][]float32, len(texts))
 	for i, text := range texts {
-		inputs[i] = VolcEngineInput{
-			Type: "text",
-			Text: text,
+		vector, err := c.embedText(ctx, text)
+		if err != nil {
+			return nil, err
 		}
+		embeddings[i] = vector
 	}
+
+	return embeddings, nil
+}
+
+func (c *VolcEngineClient) embedText(ctx context.Context, text string) ([]float32, error) {
+	// Build request inputs for a single sample
+	inputs := []VolcEngineInput{{
+		Type: "text",
+		Text: text,
+	}}
 
 	req := VolcEngineEmbeddingRequest{
 		Input:          inputs,
@@ -146,17 +160,15 @@ func (c *VolcEngineClient) EmbedBatch(ctx context.Context, texts []string) ([][]
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	if len(apiResp.Data) != len(texts) {
-		return nil, fmt.Errorf("expected %d embeddings, got %d", len(texts), len(apiResp.Data))
+	data, err := parseVolcEngineEmbeddingData(apiResp.Data)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) != 1 {
+		return nil, fmt.Errorf("expected 1 embedding, got %d", len(data))
 	}
 
-	// Extract embeddings
-	embeddings := make([][]float32, len(texts))
-	for i, data := range apiResp.Data {
-		embeddings[i] = data.Embedding
-	}
-
-	return embeddings, nil
+	return data[0].Embedding, nil
 }
 
 // Dimensions returns the dimension of the embeddings
@@ -181,4 +193,34 @@ func (r *byteReader) Read(p []byte) (int, error) {
 	n := copy(p, r.b)
 	r.b = r.b[n:]
 	return n, nil
+}
+
+func parseVolcEngineEmbeddingData(raw json.RawMessage) ([]VolcEngineEmbeddingData, error) {
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("empty embedding data")
+	}
+
+	// Trim leading whitespace to detect JSON type.
+	for i := 0; i < len(raw); i++ {
+		switch raw[i] {
+		case ' ', '\n', '\r', '\t':
+			continue
+		case '[':
+			var data []VolcEngineEmbeddingData
+			if err := json.Unmarshal(raw, &data); err != nil {
+				return nil, fmt.Errorf("failed to parse embedding array: %w", err)
+			}
+			return data, nil
+		case '{':
+			var data VolcEngineEmbeddingData
+			if err := json.Unmarshal(raw, &data); err != nil {
+				return nil, fmt.Errorf("failed to parse embedding object: %w", err)
+			}
+			return []VolcEngineEmbeddingData{data}, nil
+		default:
+			return nil, fmt.Errorf("unexpected embedding data format")
+		}
+	}
+
+	return nil, fmt.Errorf("empty embedding data")
 }
