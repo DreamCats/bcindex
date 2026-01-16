@@ -1,30 +1,40 @@
-# AGENTS
+# Repository Guidelines
 
-## Purpose
-Local guidance for automated agents working in this repository.
+## Project Structure & Module Organization
+- `cmd/`: CLI entrypoints (`bcindex`, `extract`, `relations`, `embed`).
+- `internal/`: core packages (AST extraction, indexing, retrieval, embeddings, storage, config).
+- `reference/`: architecture and design notes.
+- `scripts/`: helper scripts (for example `scripts/install.sh`).
+- `testdata/`: fixtures used by tests.
+- `config.example.yaml`: sample configuration for embedding providers and storage.
 
-## Repository Notes
-- This repo currently contains design and analysis documents under `reference/`.
-- There is no build system or runnable code in the repo at this time.
+## Build, Test, and Development Commands
+- `make build`: builds `./bcindex` from `./cmd/bcindex`.
+- `make test`: runs `go test -v ./...`.
+- `make fmt`: formats with `go fmt ./...`.
+- `make vet`: runs `go vet ./...`.
+- `make lint`: runs `golangci-lint run` (install separately).
+- `make clean`: removes `./bcindex` and clears `~/.bcindex/data/*`.
+- Direct build: `go build -o bcindex ./cmd/bcindex`.
+- Toolchain: Go 1.24 (see `go.mod`).
 
-## Editing Conventions
-- Keep changes scoped to the requested files.
-- Preserve existing Markdown structure and heading levels.
-- When editing an existing document, keep its language consistent.
+## Coding Style & Naming Conventions
+- Use `gofmt` for indentation and formatting (tabs per Go conventions).
+- Exported identifiers use `CamelCase`; unexported use `lowerCamel`.
+- Package names are short, lowercase, and descriptive.
+- Test files use `*_test.go`; fixtures live under `testdata/`.
 
-## Paths of Interest
-- `reference/BCINDEX_DESIGN.md`
-- `reference/BCINDEX_GO_TECH_SPEC.md`
-- `reference/BCINDEX_MVP_TASKS.md`
+## Testing Guidelines
+- Standard runner is `go test ./...` or `make test`.
+- Add unit tests for new indexing, retrieval, and config behavior.
+- Use `testdata/` for stable fixtures instead of inline blobs.
+- No explicit coverage threshold is defined; keep changes well-covered.
 
-## Commands
-- None required for documentation-only edits.
+## Commit & Pull Request Guidelines
+- Commit subjects typically follow conventional prefixes (e.g., `feat:`, `docs:`); keep them imperative and concise.
+- Include a short “what/why” and a “how to test” section in PRs (for example, `make test`).
+- Link related issues and update docs (`README.md`, `QUICKSTART.md`, `config.example.yaml`) when flags or config change.
 
-## Change Log Rules
-- 在仓库根目录维护 `CHANGELOG.md`。
-- 每次变更提交前追加一条记录，包含日期、版本号、变更内容、影响文件、结果（如测试/构建）。
-- 按时间倒序记录，内容保持简洁。
-
-## 元信息规则
-- 在仓库根目录维护 `PROJECT_META.md`。
-- 每次迭代更新版本号，并同步到 `CHANGELOG.md`。
+## Configuration & Secrets
+- Local config lives at `~/.bcindex/config/bcindex.yaml` (see `config.example.yaml`).
+- Never commit API keys or credentials; keep them in local config or environment variables.

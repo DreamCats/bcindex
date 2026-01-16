@@ -1,0 +1,17 @@
+# BCIndex Configuration File
+# Place this at ~/.bcindex/config/bcindex.yaml
+
+repo:
+  path: /Users/bytedance/go/src/bcodingindex
+
+embedding:
+  provider: volcengine
+  api_key: "your-volcengine-api-key-here"
+  endpoint: "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal"
+  model: "doubao-embedding-vision-250615"
+  dimensions: 2048
+  batch_size: 10
+  encoding_format: "float"
+
+database:
+  path: ~/.bcindex/data/bcindex.db

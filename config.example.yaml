@@ -1,0 +1,116 @@
+# BCIndex Configuration Example
+#
+# Copy this file to ~/.bcindex/config/bcindex.yaml and customize it for your needs.
+#
+# Default locations:
+#   Config: $HOME/.bcindex/config/bcindex.yaml
+#   Database: $HOME/.bcindex/data/<repo-name>-<hash>.db (per-repo)
+#
+# Usage:
+#   1. Navigate to your Go project directory
+#   2. Run: bcindex index
+#   3. Search: bcindex search "your query"
+
+# ==============================================================================
+# Embedding Service Configuration (Required)
+# ==============================================================================
+embedding:
+  # Embedding provider: "volcengine" or "openai"
+  provider: volcengine
+
+  # ------------------------------------------------------------
+  # VolcEngine (火山引擎) Configuration
+  # ------------------------------------------------------------
+  # Get your API key from: https://console.volcark.com/
+  api_key: your-volcengine-api-key
+
+  # API endpoint
+  endpoint: https://ark.cn-beijing.volces.com/api/v3
+
+  # Model to use for embeddings
+  # Recommended models:
+  #   - doubao-embedding-vision-250615 (2048 dimensions)
+  model: doubao-embedding-vision-250615
+
+  # Embedding dimensions
+  # Must match the model's output dimension
+  # VolcEngine: 1024 or 2048
+  # OpenAI: varies by model (e.g., 1536 for text-embedding-3-small)
+  dimensions: 2048
+
+  # Batch size for embedding requests
+  # Larger values are faster but use more memory
+  # Recommended: 10-50
+  batch_size: 10
+
+  # Encoding format for embeddings
+  # Options: "float" or "base64"
+  encoding_format: float
+
+  # ------------------------------------------------------------
+  # OpenAI Configuration (alternative)
+  # ------------------------------------------------------------
+  # To use OpenAI instead, comment out the VolcEngine section above
+  # and uncomment the following:
+  #
+  # provider: openai
+  # openai_api_key: your-openai-api-key
+  # openai_model: text-embedding-3-small
+  # dimensions: 1536
+  # batch_size: 100
+  # encoding_format: float
+
+# ==============================================================================
+# Database Configuration
+# ==============================================================================
+# Database files are generated per repository under:
+#   $HOME/.bcindex/data/<repo-name>-<hash>.db
+# No configuration is required.
+
+# ==============================================================================
+# Advanced Options (Optional)
+# ==============================================================================
+# These options have sensible defaults and usually don't need to be changed.
+
+# Indexer configuration:
+# indexer:
+#   # Maximum number of goroutines for indexing
+#   max_workers: 4
+#
+#   # Skip test files and directories
+#   skip_tests: true
+#
+#   # Exclude patterns (gitignore-style)
+#   exclude:
+#     - vendor/
+#     - node_modules/
+#     - .git/
+#     - "*.pb.go"
+#     - "*.gen.go"
+
+# Search configuration:
+# search:
+#   # Default number of results
+#   default_top_k: 10
+#
+#   # Search weights (must sum to 1.0)
+#   vector_weight: 0.6
+#   keyword_weight: 0.2
+#   graph_weight: 0.2
+#
+#   # Enable graph-based ranking
+#   enable_graph_rank: true
+
+# Evidence pack configuration:
+# evidence:
+#   # Maximum packages in evidence pack
+#   max_packages: 3
+#
+#   # Maximum symbols in evidence pack
+#   max_symbols: 10
+#
+#   # Maximum code snippets
+#   max_snippets: 5
+#
+#   # Maximum total lines across all snippets
+#   max_lines: 200

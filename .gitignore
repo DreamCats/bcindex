@@ -1,16 +1,46 @@
-# Binaries
-/bcindex
+# Binaries for programs and plugins
 *.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bcindex
+bcindex-embed
+embed
+reference
+
+# Test binary, built with `go test -c`
 *.test
+
+# Output of the go coverage tool
 *.out
 
-# Build output
-bin/
-dist/
+# Dependency directories
+vendor/
 
-# IDE / OS
-.DS_Store
-
-# Go workspace (optional)
+# Go workspace file
 go.work
-go.work.sum
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# BCIndex specific
+.bcindex/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Config file (may contain API keys)
+# Uncomment if you don't want to commit config
+# .bcindex/config/bcindex.yaml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

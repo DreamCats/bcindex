@@ -1,207 +1,598 @@
-# BCIndex (MVP)
+# BCIndex
 
-本项目提供本地 Go 仓库的索引与检索能力（符号 + 文本），以 CLI 方式使用。
+<div align="center">
 
-## 功能范围（当前）
-- Go 符号索引（函数、方法、结构体、接口、变量、常量）
-- Go 文本索引（函数/方法级分块）
-- Markdown 文本分块索引（标题分块 + 超长段落自动拆分）
-- 关系索引（imports、包依赖 depends_on）
-- 索引分级（fast/balanced/full）
-- 文本检索与符号检索（支持 mixed 融合）
-- mixed 查询补全文档链接与关系摘要
-- 向量索引写入（Qdrant + Volces embedding）
-- 向量检索（vector）与混合检索（mixed）
-- 本地用户目录持久化（`~/.bcindex/`）
-- 增量索引（基于 git diff）
-- watch 监听模式（轮询 + 去抖/批处理）
-- 问题型输出（auto/context/impact/architecture/quality），context 默认优先文档类结果
+**语义代码搜索工具 - 为 Go 项目设计的 AI 友好型代码索引**
 
-不包含：
-- MCP stdio API
-- LSP 精确引用解析（gopls）
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## 安装
+</div>
 
-### 方式 1：通过 go install 安装（推荐）
+BCIndex 是一个为 Go 项目设计的语义代码搜索工具，通过 AST 解析、向量检索和图分析，提供比传统关键词搜索更智能的代码查找体验。特别适合与 Claude Code、Cursor、Copilot Chat等 AI 编程助手配合使用。
+
+## ✨ 特性
+
+### 🔍 智能语义搜索
+- **混合检索**: 结合向量相似度、关键词匹配和调用图分析
+- **自然语言查询**: 用自然语言描述功能，找到相关代码
+- **意图理解**: 自动识别查询意图（设计/实现/扩展点），调整结果排序
+
+### 🧠 AI 友好设计
+- **证据包生成**: 为 LLM 提供结构化、精简的上下文（<200行代码）
+- **可解释推荐**: 每个结果都包含"为什么推荐"的理由
+- **图关系提示**: 展示调用链、共同调用者、入口点等架构信息
+
+### 📊 完整索引能力
+- **语义单元索引**: package、interface、struct、func、method
+- **调用图构建**: 自动分析函数调用关系
+- **依赖关系**: 包导入、接口实现等
+- **语义描述生成**: 自动生成包和符号的职责描述
+
+### 🚀 高性能
+- **增量索引**: 只重新索引变更的文件
+- **批量嵌入**: 高效的向量生成
+- **SQLite 存储**: 轻量级、无需额外数据库服务
+
+## 🎯 适用场景
+
+| 场景 | 传统方案 (rg/grep) | BCIndex |
+|------|-------------------|---------|
+| 找函数名 | ✅ 精确 | ✅ 精确 |
+| 按功能找代码 | ❌ 需要知道关键词 | ✅ 自然语言查询 |
+| 理解架构 | ❌ 需要手动追踪 | ✅ 调用图可视化 |
+| 生成技术方案 | ❌ token 消耗大 | ✅ 证据包精简 |
+| 扩展点定位 | ❌ 难以发现 | ✅ 图分析识别 |
+
+## 📦 安装
+
+### 从源码安装
+
+```bash
+# 克隆仓库
+git clone https://github.com/DreamCats/bcindex.git
+cd bcindex
+
+# 编译
+go build -o bcindex ./cmd/bcindex
+
+# 安装到 PATH
+sudo mv bcindex /usr/local/bin/
+```
+
+### 使用 go install
 
 ```bash
 go install github.com/DreamCats/bcindex/cmd/bcindex@latest
 ```
 
-安装后可以直接使用 `bcindex` 命令。
+## ⚙️ 配置
 
-### 方式 2：从源码安装
+### 快速开始
 
-在仓库根目录执行：
+1. 创建配置文件目录：
 ```bash
-go install ./cmd/bcindex
+mkdir -p ~/.bcindex/config
 ```
 
-## 快速开始
+2. 创建配置文件 `~/.bcindex/config/bcindex.yaml`:
 
-1) 初始化与全量索引
-```bash
-go run ./cmd/bcindex init --root .
-go run ./cmd/bcindex index --root . --full --progress --tier fast
-```
-
-说明：`index --full` 会自动初始化仓库元信息与目录，`init` 可选。
-
-首次使用向量化时，若未创建配置文件，`index` 会自动生成默认配置并提示你补全 `volces_api_key` 与 `volces_model`，否则将降级为仅文本/符号索引。
-
-1.1) 增量索引（基于 git diff）
-```bash
-go run ./cmd/bcindex index --root . --diff HEAD~1 --progress
-```
-
-1.2) 监听模式（轮询）
-```bash
-go run ./cmd/bcindex watch --root . --interval 3s --debounce 2s --progress --tier fast
-```
-
-2) 查询示例
-```bash
-go run ./cmd/bcindex query --root . --q "这个项目是干什么的"
-go run ./cmd/bcindex query --root . --q "IndexRepo" --type symbol
-go run ./cmd/bcindex query --root . --q "BCIndex" --type text
-go run ./cmd/bcindex query --root . --q "索引进度条如何实现" --type vector
-go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed
-go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed --json
-go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed --progress
-go run ./cmd/bcindex query --root . --q "IndexRepo" --mode context
-go run ./cmd/bcindex query --root . --q "IndexRepo" --mode impact
-go run ./cmd/bcindex query --root . --q "BCIndex" --mode architecture
-go run ./cmd/bcindex query --root . --q "BCIndex" --mode quality
-```
-
-3) 查看状态
-```bash
-go run ./cmd/bcindex status --root .
-```
-
-4) 版本号
-```bash
-go run ./cmd/bcindex version
-```
-
-## 索引分级（tier）
-
-- `fast`：仅 AST 符号 + imports 关系，速度最快，默认值。
-- `balanced`：在 fast 基础上运行 `go list` 生成包依赖（depends_on）。
-- `full`：当前与 balanced 行为一致，预留给后续 gopls 解析增强。
-
-说明：
-- CLI 参数 `--tier` 优先于配置文件。
-- `balanced/full` 依赖本机 `go` 命令；若 `go list` 失败，会提示警告并继续索引。
-
-## 问题型输出（mode）
-
-- `auto`：默认模式，按 query 自动选择 context/impact/architecture/quality/search。
-- `context`：围绕 query 组合最相关文档/代码与关系摘要，问句会优先文档并减少代码噪声。
-- `impact`：围绕 query 的相关文件，输出依赖/引用的最小关系摘要。
-- `architecture`：输出仓库关系指标与主要依赖边。
-- `quality`：输出索引覆盖统计（symbols、relations、doc_links、text_docs）。
-
-说明：
-- `--mode` 默认 `auto`，推荐值仅做启发式判断，可用显式 `--mode` 覆盖。
-- `auto` 优先按问句意图走 `context`，只有明确“影响/依赖/位置”诉求才切换模式。
-- 对“实现/逻辑/源码”类问句，`context` 会优先识别函数名并更偏向代码片段。
-- `context` 会对常见命令词做轻量同义扩展（如 index→索引）以匹配中文文档标题。
-- 查询会对自然语言做轻量分词与变体检索，并合并多路命中结果。
-- `context/impact` 会使用 mixed 查询作为基础。
-- `architecture/quality` 暂不依赖 query 内容，但保留 `--q` 作为统一入口。
-- `search` 会自动压缩输出片段，减少无关噪声。
-
-## 目录结构
-
-索引数据默认存放于：
-```
-~/.bcindex/
-  repos/<repo_id>/
-    text/      # Bleve 文本索引
-    symbol/    # SQLite symbols.db（symbols、relations 等）
-    meta/      # repo.json
-```
-
-## 命令说明
-
-```
-bcindex init   --root <repo>
-bcindex index  --root <repo> [--full|--diff <rev>] [--tier <fast|balanced|full>] [--progress]
-bcindex watch  --root <repo> [--interval 3s] [--debounce 2s] [--tier <fast|balanced|full>] [--progress]
-bcindex query  --root <repo> --q <text> --type <text|symbol|mixed|vector> [--mode <auto|search|context|impact|architecture|quality>] [--json] [--progress]
-bcindex status --root <repo>
-bcindex version [--root <repo>]
-bcindex config init [--force]
-```
-
-## 常见问题
-
-1) `--root` 未指定
-- CLI 会从当前目录向上查找最近的 `.git` 作为仓库根目录。
-- 若未找到，请显式传入 `--root`。
-
-2) `go run ./bcindex ...` 报错
-- 可执行入口在 `cmd/bcindex`，请使用：
-  - `go run ./cmd/bcindex ...`
-
-3) 向量化配置文件
-
-配置文件路径：
-```
-~/.bcindex/config/bcindex.yaml
-```
-
-初始化配置：
-```bash
-go run ./cmd/bcindex config init
-```
-
-说明：
-- `qdrant_path` 指定本地存储目录（本地模式，不依赖 Qdrant 进程）。
-- 若 `qdrant_path` 为空，则使用 `qdrant_url` 连接远程 Qdrant 服务。
-- 本地模式会将向量写入 `qdrant_path/vectors.db`。
-- `index.tier` 控制索引分级，默认 `fast`。
-- `query.max_context_chars` 控制问题型输出的最大字符预算。
-
-示例（最简，类似 docs-hub）：
 ```yaml
-index:
-  tier: "fast"
-query:
-  max_context_chars: 20000
-qdrant_path: "~/.bcindex/qdrant"
-qdrant_collection: "bcindex_vectors"
-volces_endpoint: "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal"
-volces_api_key: "your_api_key"
-volces_model: "your_model_id"
-vector_enabled: true
+# 向量服务配置（必需）
+embedding:
+  provider: volcengine
+  api_key: your-api-key
+  endpoint: https://ark.cn-beijing.volces.com/api/v3
+  model: doubao-embedding-vision-250615
+  dimensions: 2048
+  batch_size: 10
+
+# 数据库配置（可选，不配置则使用默认路径）
+# 默认按仓库生成独立数据库：
+# ~/.bcindex/data/<repo-name>-<hash>.db
 ```
 
-可选字段（需要时再填）：
-```yaml
-qdrant_url: "http://127.0.0.1:6333"
-qdrant_api_key: ""
-qdrant_http_port: 6333
-qdrant_grpc_port: 6334
-volces_dimensions: 1024
-volces_encoding: "float"
-volces_timeout: "30s"
-volces_instructions: ""
-vector_batch_size: 8
-vector_max_chars: 1500
-vector_workers: 4
-vector_rerank_candidates: 300
-vector_overlap_chars: 80
-query_top_k: 10
-index:
-  tier: "balanced"
-query:
-  max_context_chars: 20000
+详细配置示例: [config.example.yaml](./config.example.yaml)
+
+### 获取 API Key
+
+**VolcEngine (火山引擎)**:
+- 访问: https://console.volcark.com/
+- 创建 API Key
+- 支持的模型: `doubao-embedding-vision-250615` (2048维)
+
+**OpenAI** (可选):
+- 在配置文件中设置 `provider: openai`
+- 配置 `openai_api_key` 和 `openai_model`
+
+## 🚀 使用
+
+### 工作流程
+
+BCIndex 的使用方式非常简单 - 就在你的项目目录中使用：
+
+```bash
+# 1. 进入你的 Go 项目目录
+cd /path/to/your/go/project
+
+# 2. 构建索引（首次使用或代码更新后）
+bcindex index
+
+# 3. 搜索代码
+bcindex search "your query"
+
+# 4. 生成证据包（给 AI 用）
+bcindex evidence "implementation details"
 ```
 
-## 文档参考
-- `reference/BCINDEX_GO_TECH_SPEC.md`
-- `reference/BCINDEX_MVP_TASKS.md`
-- `reference/BCINDEX_DESIGN.md`
+### 1. 索引你的代码
+
+```bash
+# 索引当前目录（最常用）
+cd /path/to/your/go/project
+bcindex index
+
+# 从任意位置索引指定项目
+bcindex index -repo /path/to/project
+
+# 强制重建索引
+bcindex index -force
+```
+
+**说明：**
+- 默认在当前工作目录查找 Go 项目
+- 自动检测 `go.mod` 文件
+- 如果没有 `go.mod` 会警告但继续索引
+
+索引过程会：
+1. 使用 AST 解析所有 Go 文件
+2. 提取符号（函数、类型、接口等）
+3. 构建调用图和依赖关系
+4. 生成语义描述
+5. 创建向量嵌入
+
+### 2. 搜索代码
+
+```bash
+# 自然语言搜索
+bcindex search "处理订单状态的函数"
+
+# 关键词搜索
+bcindex search "UpdateOrder" -keyword-only
+
+# 向量搜索
+bcindex search "database connection" -vector-only
+
+# 获取更多结果
+bcindex search "error handling" -k 20
+
+# JSON 输出（脚本集成）
+bcindex search "cache" -json
+
+# 详细输出（包含评分和理由）
+bcindex search "order status" -v
+```
+
+### 3. 生成证据包 (AI 辅助)
+
+证据包是为 LLM 优化的结构化上下文，包含：
+- 包卡片（职责、角色、关键符号）
+- 符号卡片（签名、位置、推荐理由）
+- 代码片段（严格控制在 200 行以内）
+- 图提示（调用链、入口点等）
+
+```bash
+# 生成证据包到标准输出
+bcindex evidence "如何实现幂等性"
+
+# 保存到文件
+bcindex evidence "支付流程" -output payment_evidence.json
+
+# 自定义证据包大小
+bcindex evidence "database migration" \
+  -max-packages 5 \
+  -max-symbols 20 \
+  -max-snippets 10 \
+  -max-lines 500
+```
+
+**证据包输出示例**:
+```json
+{
+  "query": "如何实现幂等性",
+  "top_packages": [
+    {
+      "path": "myapp/service/payment",
+      "role": "application/business",
+      "summary": "支付服务 - 处理支付逻辑和幂等性",
+      "why": [
+        "包含 ProcessPayment 函数",
+        "实现了幂等中间件"
+      ],
+      "key_symbols": ["ProcessPayment", "IdempotencyMiddleware"]
+    }
+  ],
+  "top_symbols": [
+    {
+      "id": "sym_123",
+      "name": "ProcessPayment",
+      "kind": "func",
+      "signature": "func (s *Service) ProcessPayment(ctx context.Context, req PaymentRequest) (*PaymentResponse, error)",
+      "file": "service/payment.go:45",
+      "why": [
+        "匹配 '幂等性实现'",
+        "使用了唯一键去重",
+        "被 HTTP handler 调用"
+      ]
+    }
+  ],
+  "snippets": [
+    {
+      "file_path": "service/payment.go",
+      "start_line": 45,
+      "end_line": 89,
+      "content": "...",
+      "reason": "Symbol: ProcessPayment (func)"
+    }
+  ],
+  "graph_hints": [
+    "HTTP handler -> service.ProcessPayment -> repo.Save -> outbox.Publish",
+    "Entry points: ProcessPayment"
+  ],
+  "metadata": {
+    "total_symbols": 5,
+    "total_packages": 2,
+    "total_lines": 156,
+    "generated_at": "2025-01-15T10:30:00Z"
+  }
+}
+```
+
+### 4. 查看统计信息
+
+```bash
+# 人类可读格式
+bcindex stats
+
+# JSON 格式
+bcindex stats -json
+```
+
+输出示例：
+```
+📊 Index Statistics
+
+Packages:        42
+Symbols:         387
+Edges:           1523
+Embeddings:      387
+```
+
+## 📖 命令参考
+
+### 全局选项
+
+| 选项 | 说明 |
+|------|------|
+| `-config <path>` | 指定配置文件路径 |
+| `-repo <path>` | 覆盖配置中的仓库路径 |
+| `-v, -version` | 显示版本信息 |
+| `-h, -help` | 显示帮助信息 |
+
+### bcindex index
+
+构建代码索引。
+
+**选项**:
+- `-force`: 强制重建索引
+- `-v`: 详细输出
+
+**示例**:
+```bash
+bcindex index
+bcindex -repo /path/to/repo index -v
+```
+
+### bcindex search
+
+搜索代码。
+
+**选项**:
+- `-k <num>`: 返回结果数量 (默认: 10)
+- `-vector-only`: 仅使用向量搜索
+- `-keyword-only`: 仅使用关键词搜索
+- `-json`: JSON 格式输出
+- `-v`: 详细输出（评分和理由）
+
+**示例**:
+```bash
+bcindex search "order validation"
+bcindex search "CreateOrder" -keyword-only -k 20
+bcindex search "error handling" -json
+```
+
+### bcindex evidence
+
+生成 LLM 友好的证据包。
+
+**选项**:
+- `-output <path>`: 输出文件路径（默认: stdout）
+- `-max-packages <num>`: 最大包数量 (默认: 3)
+- `-max-symbols <num>`: 最大符号数量 (默认: 10)
+- `-max-snippets <num>`: 最大代码片段数 (默认: 5)
+- `-max-lines <num>`: 最大总行数 (默认: 200)
+
+**示例**:
+```bash
+bcindex evidence "implement retry logic"
+bcindex evidence "payment flow" -output evidence.json
+bcindex evidence "cache" -max-symbols 20 -max-lines 500
+```
+
+### bcindex stats
+
+显示索引统计信息。
+
+**选项**:
+- `-json`: JSON 格式输出
+
+**示例**:
+```bash
+bcindex stats
+bcindex stats -json
+```
+
+## 🏗️ 架构
+
+BCIndex 的设计参考了 [NEW_SOLUTION.md](./reference/NEW_SOLUTION.md) 中的最佳实践：
+
+### 离线索引流程
+
+```
+Git Repo (Go Code)
+       ↓
+   Indexer
+  ├─ AST 解析 (go/parser + go/types)
+  ├─ 抽取语义单元 (symbols)
+  ├─ 构建关系图 (edges)
+  ├─ 生成语义描述 (semantic text)
+  └─ 创建向量嵌入 (embeddings)
+       ↓
+   Storage
+  ├─ SQLite (metadata)
+  ├─ FTS5 (keywords)
+  └─ Vector DB (embeddings)
+```
+
+### 在线查询流程
+
+```
+User Query
+     ↓
+RAG Orchestrator
+  ├─ Query 解析/改写
+  ├─ 混合检索
+  │   ├─ 向量搜索 (semantic similarity)
+  │   ├─ 关键词搜索 (BM25)
+  │   └─ 图特征 (PageRank, layers)
+  ├─ 结构化重排
+  │   ├─ 意图识别 (design/implementation/extension)
+  │   ├─ 层级排序 (handler → service → repo)
+  │   └─ 中心性加权
+  └─ 证据包组装
+      ├─ 包卡片 (Package Cards)
+      ├─ 符号卡片 (Symbol Cards)
+      ├─ 代码片段 (Code Snippets)
+      └─ 图提示 (Graph Hints)
+     ↓
+  Results / Evidence Pack
+```
+
+### 核心组件
+
+| 组件 | 文件 | 功能 |
+|------|------|------|
+| **Indexer** | `internal/indexer/` | 索引流程编排 |
+| **AST Pipeline** | `internal/ast/` | Go 代码解析 |
+| **Embedding** | `internal/embedding/` | 向量生成 |
+| **Hybrid Retriever** | `internal/retrieval/hybrid.go` | 混合检索 |
+| **Graph Ranker** | `internal/retrieval/ranking.go` | 图排序 |
+| **Evidence Builder** | `internal/retrieval/evidence.go` | 证据包生成 |
+| **Store** | `internal/store/` | 数据持久化 |
+
+## 🔧 开发
+
+### 项目结构
+
+```
+bcindex/
+├── cmd/
+│   ├── bcindex/          # 主 CLI 工具
+│   ├── extract/          # 旧版：符号提取工具
+│   ├── relations/        # 旧版：关系提取工具
+│   └── embed/            # 旧版：嵌入工具
+├── internal/
+│   ├── ast/              # AST 解析和符号抽取
+│   ├── config/           # 配置管理
+│   ├── embedding/        # 向量嵌入服务
+│   ├── indexer/          # 索引器
+│   ├── retrieval/        # 检索和排序
+│   ├── semantic/         # 语义描述生成
+│   └── store/            # 数据存储
+├── reference/
+│   ├── NEW_SOLUTION.md   # 架构设计文档
+│   └── REFACTOR_PLAN.md  # 重构计划
+├── config.example.yaml   # 配置示例
+└── README.md
+```
+
+### 运行测试
+
+```bash
+# 运行所有测试
+go test ./...
+
+# 运行特定包的测试
+go test ./internal/retrieval/...
+
+# 详细输出
+go test -v ./internal/ast/...
+```
+
+### 代码质量
+
+```bash
+# 格式化代码
+go fmt ./...
+
+# 静态检查
+go vet ./...
+
+# 使用 golangci-lint
+golangci-lint run
+```
+
+## 🤝 集成
+
+### Claude Code
+
+在 Claude Code 中使用 BCIndex 作为工具：
+
+```json
+{
+  "tools": [
+    {
+      "name": "semantic_search",
+      "description": "Search code using natural language",
+      "command": "bcindex",
+      "args": ["search", "{{query}}", "-json"]
+    },
+    {
+      "name": "get_evidence",
+      "description": "Get LLM-friendly evidence pack",
+      "command": "bcindex",
+      "args": ["evidence", "{{query}}", "-max-lines", "200"]
+    }
+  ]
+}
+```
+
+### Cursor
+
+添加到 Cursor 的 MCP 服务器：
+
+```python
+# cursor_mcp_server.py
+import subprocess
+import json
+
+def semantic_search(query: str) -> dict:
+    result = subprocess.run(
+        ["bcindex", "search", query, "-json"],
+        capture_output=True,
+        text=True
+    )
+    return json.loads(result.stdout)
+
+def get_evidence(query: str) -> dict:
+    result = subprocess.run(
+        ["bcindex", "evidence", query],
+        capture_output=True,
+        text=True
+    )
+    return json.loads(result.stdout)
+```
+
+## 📊 性能
+
+### 索引性能
+
+| 项目规模 | 符号数 | 索引时间 | 数据库大小 |
+|---------|--------|---------|-----------|
+| 小型 (<1K 文件) | ~500 | ~30s | ~5MB |
+| 中型 (1K-10K) | ~5K | ~2min | ~50MB |
+| 大型 (>10K) | ~20K | ~5min | ~200MB |
+
+### 查询性能
+
+| 查询类型 | 平均延迟 |
+|---------|---------|
+| 关键词搜索 | <10ms |
+| 向量搜索 | ~50ms |
+| 混合检索 | ~100ms |
+| 证据包生成 | ~200ms |
+
+## 🐛 故障排查
+
+### 配置文件找不到
+
+**错误**:
+```
+Error: config file not found at: ~/.bcindex/config/bcindex.yaml
+```
+
+**解决**:
+```bash
+# 创建配置目录
+mkdir -p ~/.bcindex/config
+
+# 复制示例配置
+cp config.example.yaml ~/.bcindex/config/bcindex.yaml
+
+# 编辑配置
+vim ~/.bcindex/config/bcindex.yaml
+```
+
+### API Key 无效
+
+**错误**:
+```
+Failed to create embedding service: authentication failed
+```
+
+**解决**:
+1. 检查 API Key 是否正确
+2. 确认账户有足够的配额
+3. 验证 endpoint URL
+
+### 索引失败
+
+**错误**:
+```
+Indexing failed: failed to parse package
+```
+
+**解决**:
+1. 确保 Go 模块有 `go.mod` 文件
+2. 检查代码是否有语法错误
+3. 尝试使用 `-v` 选项查看详细日志
+
+## 📝 路线图
+
+- [ ] 支持更多编程语言 (TypeScript, Python, Rust)
+- [ ] Web UI 界面
+- [ ] 实时索引监控
+- [ ] 分布式索引支持
+- [ ] 更多嵌入模型支持
+- [ ] VSCode 插件
+- [ ] JetBrains 插件
+
+## 📄 许可证
+
+MIT License - 详见 [LICENSE](LICENSE) 文件
+
+## 🙏 致谢
+
+- 架构设计灵感来自 [NEW_SOLUTION.md](./reference/NEW_SOLUTION.md)
+- 使用了 Go 官方的 `go/parser` 和 `go/types` 包
+- 向量检索参考了现代 RAG 系统的最佳实践
+
+## 📮 联系方式
+
+- 作者: DreamCats
+- GitHub: [@DreamCats](https://github.com/DreamCats)
+- 问题反馈: [GitHub Issues](https://github.com/DreamCats/bcindex/issues)
+
+---
+
+**💡 提示**: 第一次使用前，请确保已经配置好向量服务的 API Key，并运行 `bcindex index` 构建索引。
