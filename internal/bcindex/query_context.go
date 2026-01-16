@@ -152,8 +152,9 @@ func queryContext(paths RepoPaths, meta *RepoMeta, query string, topK int) ([]Se
 			symbolBoost = 0.5
 		}
 		docBoost := docBoostForHit(hit.hit, docQuestion)
+		codeBoost := codeBoostForHit(hit.hit)
 		if preferCode && isDocFile(hit.hit.File) {
-			docBoost -= 0.6
+			docBoost -= 0.8
 			if docBoost < 0 {
 				docBoost = 0
 			}
@@ -163,16 +164,16 @@ func queryContext(paths RepoPaths, meta *RepoMeta, query string, topK int) ([]Se
 		textWeight := 0.4
 		symbolWeight := 0.1
 		if question {
-			vectorWeight = 0.6
-			textWeight = 0.3
-			symbolWeight = 0.05
+			vectorWeight = 0.55
+			textWeight = 0.35
+			symbolWeight = 0.1
 		}
 		if preferCode {
-			vectorWeight = 0.4
-			textWeight = 0.4
-			symbolWeight = 0.2
+			vectorWeight = 0.35
+			textWeight = 0.35
+			symbolWeight = 0.3
 		}
-		hit.hit.Score = vectorWeight*vectorScore + textWeight*textScore + symbolWeight*symbolBoost + docBoost
+		hit.hit.Score = vectorWeight*vectorScore + textWeight*textScore + symbolWeight*symbolBoost + docBoost + codeBoost
 		hit.hit.Source = joinSources(hit.symbol != nil, hit.text != nil, hit.vector != nil)
 		merged = append(merged, hit)
 	}
@@ -209,7 +210,7 @@ func hitKey(hit SearchHit) string {
 func docBoostForHit(hit SearchHit, question bool) float64 {
 	boost := docBoostForFile(hit.File)
 	if question && isDocFile(hit.File) {
-		boost += 0.8
+		boost += 0.5
 	}
 	sectionBoost := docSectionBoost(hit.Snippet)
 	if isReadmeFile(hit.File) {
@@ -218,16 +219,27 @@ func docBoostForHit(hit SearchHit, question bool) float64 {
 	return boost + sectionBoost
 }
 
+func codeBoostForHit(hit SearchHit) float64 {
+	if hit.File == "" {
+		return 0.0
+	}
+	lower := strings.ToLower(hit.File)
+	if strings.HasSuffix(lower, ".go") {
+		return 0.3
+	}
+	return 0.0
+}
+
 func docBoostForFile(path string) float64 {
 	lower := strings.ToLower(path)
 	if strings.HasSuffix(lower, "readme.md") {
-		return 2.0
+		return 1.5
 	}
 	if strings.HasPrefix(lower, "docs/") || strings.HasPrefix(lower, "reference/") {
-		return 1.2
+		return 1.0
 	}
 	if strings.HasSuffix(lower, ".md") || strings.HasSuffix(lower, ".markdown") {
-		return 1.0
+		return 0.8
 	}
 	return 0.0
 }
@@ -257,8 +269,8 @@ func isQuestionQuery(query string) bool {
 	}
 	keywords := []string{
 		"是什么", "做什么", "干什么", "用途", "作用", "目的", "意义",
-		"如何", "怎么", "为啥", "为什么", "原因", "介绍", "概述", "概览",
-		"what", "why", "how", "purpose", "overview", "about", "introduce",
+		"如何", "为啥", "为什么", "原因", "介绍", "概述", "概览", "说明",
+		"what", "why", "purpose", "overview", "about", "introduce",
 	}
 	for _, kw := range keywords {
 		if strings.Contains(q, kw) {
@@ -410,11 +422,42 @@ func isImplementationQuery(query string) bool {
 	if q == "" {
 		return false
 	}
-	keywords := []string{
+	implementationKeywords := []string{
 		"实现", "实现逻辑", "逻辑", "原理", "机制", "源码", "细节",
-		"how", "implement", "implementation", "logic", "works",
+		"怎么做", "怎么实现", "如何实现", "如何做", "怎么做的", "怎么工作",
+		"implement", "implementation", "logic", "works", "how does",
 	}
-	for _, kw := range keywords {
+	for _, kw := range implementationKeywords {
+		if strings.Contains(q, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+func isConceptualQuery(query string) bool {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return false
+	}
+	if strings.ContainsAny(q, "?？") {
+		conceptKeywords := []string{
+			"是什么", "做什么", "干什么", "用途", "作用", "目的", "意义",
+			"为啥", "为什么", "原因", "介绍", "概述", "概览", "说明",
+			"what", "why", "purpose", "overview", "about", "introduce", "explanation",
+		}
+		for _, kw := range conceptKeywords {
+			if strings.Contains(q, kw) {
+				return true
+			}
+		}
+	}
+	conceptKeywords := []string{
+		"是什么", "做什么", "干什么", "用途", "作用", "目的", "意义",
+		"为啥", "为什么", "原因", "介绍", "概述", "概览", "说明",
+		"what", "why", "purpose", "overview", "about", "introduce", "explanation",
+	}
+	for _, kw := range conceptKeywords {
 		if strings.Contains(q, kw) {
 			return true
 		}

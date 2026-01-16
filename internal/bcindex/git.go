@@ -88,7 +88,11 @@ func walkFiles(root string) ([]string, error) {
 func shouldIndex(rel string) bool {
 	filter := GetGlobalFilter()
 	if filter != nil {
-		return filter.ShouldIndex(rel)
+		result := filter.ShouldIndex(rel)
+		if !result {
+			LogDebug("File filtered by filter", map[string]interface{}{"file": rel})
+		}
+		return result
 	}
 
 	ext := strings.ToLower(filepath.Ext(rel))
@@ -96,6 +100,10 @@ func shouldIndex(rel string) bool {
 	case ".go", ".md", ".markdown":
 		return true
 	default:
+		LogDebug("File filtered by extension", map[string]interface{}{
+			"file": rel,
+			"ext": ext,
+		})
 		return false
 	}
 }

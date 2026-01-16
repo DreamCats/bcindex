@@ -75,23 +75,48 @@ func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 }
 
 func IndexRepoWithOptions(root string, reporter ProgressReporter, opts IndexOptions) error {
+	logger, err := InitIndexLogger(root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to initialize logger: %v\n", err)
+	}
+	defer func() {
+		if logger != nil {
+			logger.Close()
+		}
+	}()
+
 	paths, meta, err := InitRepo(root)
 	if err != nil {
+		LogError("Failed to initialize repo", map[string]interface{}{"error": err})
 		return err
 	}
+	LogInfo("Repository initialized", map[string]interface{}{
+		"root": paths.Root,
+		"repo_id": storeRepoID(paths.Root),
+	})
+
 	tier, err := resolveIndexTierOption(opts)
 	if err != nil {
+		LogError("Failed to resolve index tier", map[string]interface{}{"error": err})
 		return err
 	}
+	LogInfo("Index tier resolved", map[string]interface{}{"tier": tier})
 
 	cfg, _, err := LoadIndexConfigOptional()
 	if err != nil {
+		LogError("Failed to load index config", map[string]interface{}{"error": err})
 		return err
 	}
 	_, err = InitFileFilter(cfg, paths.Root)
 	if err != nil {
+		LogError("Failed to initialize file filter", map[string]interface{}{"error": err})
 		return err
 	}
+	LogInfo("File filter initialized", map[string]interface{}{
+		"exclude_dirs": len(cfg.ExcludeDirs),
+		"exclude_patterns": len(cfg.Exclude),
+		"use_gitignore": cfg.UseGitignore,
+	})
 
 	if err := os.RemoveAll(paths.TextDir); err != nil {
 		return fmt.Errorf("reset text index: %w", err)
@@ -131,11 +156,17 @@ func IndexRepoWithOptions(root string, reporter ProgressReporter, opts IndexOpti
 
 	var pkgIndex *GoPackageIndex
 	if tierAllowsGoList(tier) {
+		LogInfo("Building Go package index", map[string]interface{}{"tier": tier})
 		pkgIndex, err = BuildGoPackageIndex(paths.Root)
 		if err != nil {
 			collector.Add("go_list", err)
+			LogWarn("Go package index failed", map[string]interface{}{"error": err})
 			pkgIndex = nil
 		} else {
+			LogInfo("Go package index built", map[string]interface{}{
+				"packages": len(pkgIndex.DirToImportPath),
+				"dependencies": len(pkgIndex.Depends),
+			})
 			for _, rel := range pkgIndex.Depends {
 				if err := store.InsertRelation(rel); err != nil {
 					collector.Add("go_list", err)
@@ -145,16 +176,29 @@ func IndexRepoWithOptions(root string, reporter ProgressReporter, opts IndexOpti
 		}
 	}
 
+	LogInfo("Listing tracked files", nil)
 	files, err := listTrackedFiles(paths.Root)
 	if err != nil {
+		LogError("Failed to list tracked files", map[string]interface{}{"error": err})
 		return err
 	}
+	LogInfo("Files listed", map[string]interface{}{"total_files": len(files)})
 
 	indexable := make([]string, 0, len(files))
+	skippedFiles := make([]string, 0)
 	for _, rel := range files {
 		if shouldIndex(rel) {
 			indexable = append(indexable, rel)
+		} else {
+			skippedFiles = append(skippedFiles, rel)
 		}
+	}
+	LogInfo("File filtering complete", map[string]interface{}{
+		"indexable": len(indexable),
+		"skipped": len(skippedFiles),
+	})
+	if len(skippedFiles) <= 20 && len(skippedFiles) > 0 {
+		LogDebug("Skipped files", map[string]interface{}{"files": skippedFiles})
 	}
 	if reporter != nil {
 		announcePhase(reporter, fmt.Sprintf("phase:text+symbol files=%d", len(indexable)))
@@ -280,7 +324,19 @@ func IndexRepoWithOptions(root string, reporter ProgressReporter, opts IndexOpti
 	meta.LastIndexAt = time.Now()
 	meta.UpdatedAt = time.Now()
 	if err := SaveRepoMeta(paths, meta); err != nil {
+		LogError("Failed to save repo metadata", map[string]interface{}{"error": err})
 		return err
+	}
+
+	if err := collector.Err(); err != nil {
+		LogWarn("Index completed with errors", map[string]interface{}{
+			"error": err.Error(),
+			"error_count": collector.count,
+		})
+	} else {
+		LogInfo("Index completed successfully", map[string]interface{}{
+			"vector_enabled": vectorEnabled,
+		})
 	}
 	return collector.Err()
 }
@@ -511,7 +567,19 @@ func IndexRepoDeltaWithOptions(root string, changes []FileChange, reporter Progr
 	meta.LastIndexAt = time.Now()
 	meta.UpdatedAt = time.Now()
 	if err := SaveRepoMeta(paths, meta); err != nil {
+		LogError("Failed to save repo metadata", map[string]interface{}{"error": err})
 		return err
+	}
+
+	if err := collector.Err(); err != nil {
+		LogWarn("Index completed with errors", map[string]interface{}{
+			"error": err.Error(),
+			"error_count": collector.count,
+		})
+	} else {
+		LogInfo("Index completed successfully", map[string]interface{}{
+			"vector_enabled": vectorEnabled,
+		})
 	}
 	return collector.Err()
 }

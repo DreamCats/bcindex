@@ -37,6 +37,10 @@ func (f *FileFilter) ShouldIndex(relPath string) bool {
 	if f.cfg.UseGitignore && f.gitignoreMatcher != nil {
 		isDir := strings.HasSuffix(relPath, "/") || filepath.Ext(relPath) == ""
 		if f.gitignoreMatcher.Match(relPath, isDir) {
+			LogDebug("File excluded by .gitignore", map[string]interface{}{
+				"path": relPath,
+				"is_dir": isDir,
+			})
 			return false
 		}
 	}
@@ -44,11 +48,20 @@ func (f *FileFilter) ShouldIndex(relPath string) bool {
 	for _, pattern := range f.cfg.Exclude {
 		matched, _ := doublestar.Match(pattern, relPath)
 		if matched {
+			LogDebug("File excluded by pattern", map[string]interface{}{
+				"path": relPath,
+				"pattern": pattern,
+			})
 			return false
 		}
 		base := filepath.Base(relPath)
 		matched, _ = doublestar.Match(pattern, base)
 		if matched {
+			LogDebug("File excluded by basename pattern", map[string]interface{}{
+				"path": relPath,
+				"pattern": pattern,
+				"basename": base,
+			})
 			return false
 		}
 	}
@@ -57,6 +70,11 @@ func (f *FileFilter) ShouldIndex(relPath string) bool {
 	for i, part := range pathParts {
 		for _, excludeDir := range f.cfg.ExcludeDirs {
 			if part == excludeDir {
+				LogDebug("Path excluded by directory", map[string]interface{}{
+					"path": relPath,
+					"dir": part,
+					"exclude_dir": excludeDir,
+				})
 				return false
 			}
 		}
@@ -65,6 +83,11 @@ func (f *FileFilter) ShouldIndex(relPath string) bool {
 				if strings.HasSuffix(excludeDir, "/") {
 					dirPattern := strings.TrimSuffix(excludeDir, "/")
 					if part == dirPattern {
+						LogDebug("Path excluded by directory pattern", map[string]interface{}{
+							"path": relPath,
+							"dir": part,
+							"exclude_dir": excludeDir,
+						})
 						return false
 					}
 				}
@@ -77,6 +100,10 @@ func (f *FileFilter) ShouldIndex(relPath string) bool {
 	case ".go", ".md", ".markdown":
 		return true
 	default:
+		LogDebug("File excluded by extension", map[string]interface{}{
+			"path": relPath,
+			"ext": ext,
+		})
 		return false
 	}
 }
