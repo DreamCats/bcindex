@@ -539,6 +539,9 @@ func removeFileIndex(store *SymbolStore, textIndex bleve.Index, rel string) erro
 	if err := store.DeleteRelationsByFile(rel); err != nil {
 		return err
 	}
+	if err := store.DeleteDocLinksByFile(rel); err != nil {
+		return err
+	}
 	if err := store.DeleteFile(rel); err != nil {
 		return err
 	}
@@ -828,6 +831,7 @@ func packageRefForFile(rel string, ctx *IndexContext) string {
 
 func indexMarkdownFile(store *SymbolStore, textIndex TextIndexer, rel string, content []byte) error {
 	chunks := ChunkMarkdown(content)
+	links := ExtractMarkdownDocLinks(content)
 	if len(chunks) == 0 {
 		doc := TextDoc{
 			Path:      rel,
@@ -840,7 +844,10 @@ func indexMarkdownFile(store *SymbolStore, textIndex TextIndexer, rel string, co
 		if err := textIndex.IndexDoc(docID, doc); err != nil {
 			return err
 		}
-		return store.InsertTextDoc(rel, docID)
+		if err := store.InsertTextDoc(rel, docID); err != nil {
+			return err
+		}
+		return insertDocLinks(store, rel, links)
 	}
 	for _, chunk := range chunks {
 		docID := fmt.Sprintf("md:%s:%d", rel, chunk.LineStart)
@@ -859,7 +866,7 @@ func indexMarkdownFile(store *SymbolStore, textIndex TextIndexer, rel string, co
 			return err
 		}
 	}
-	return nil
+	return insertDocLinks(store, rel, links)
 }
 
 func lineCount(content []byte) int {
@@ -867,6 +874,18 @@ func lineCount(content []byte) int {
 		return 0
 	}
 	return strings.Count(string(content), "\n") + 1
+}
+
+func insertDocLinks(store *SymbolStore, rel string, links []DocLink) error {
+	if len(links) == 0 {
+		return nil
+	}
+	for _, link := range links {
+		if err := store.InsertDocLink(link, rel); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type FileEntry struct {

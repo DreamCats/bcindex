@@ -221,6 +221,7 @@ func runQuery(args []string) int {
 	repo := fs.String("repo", "", "repo id or path")
 	root := fs.String("root", "", "repo root path (overrides --repo)")
 	qtype := fs.String("type", "mixed", "query type: text|symbol|mixed|vector")
+	mode := fs.String("mode", "", "query mode: auto|search|context|impact|architecture|quality")
 	query := fs.String("q", "", "query text")
 	topK := fs.Int("top", 10, "max results")
 	jsonOut := fs.Bool("json", false, "output JSON")
@@ -231,6 +232,11 @@ func runQuery(args []string) int {
 	}
 	if strings.TrimSpace(*query) == "" {
 		fmt.Fprintln(os.Stderr, "query text is required")
+		return 1
+	}
+	parsedMode, err := ParseQueryMode(*mode)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 
@@ -249,6 +255,31 @@ func runQuery(args []string) int {
 			}
 		}
 	}
+	if parsedMode != QueryModeSearch {
+		report, err := QueryRepoMode(paths, meta, *query, parsedMode, *topK)
+		stop()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		cfg, _, _ := LoadQueryConfigOptional()
+		out, truncated, truncation := FormatQueryReport(report, cfg.MaxContextChars)
+		report.Truncated = truncated
+		report.Truncation = truncation
+		if *jsonOut {
+			if err := printReportJSON(report); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return 1
+			}
+			return 0
+		}
+		fmt.Print(out)
+		if truncated {
+			fmt.Fprintln(os.Stderr, truncation)
+		}
+		return 0
+	}
+
 	hits, err := QueryRepo(paths, meta, *query, strings.ToLower(*qtype), *topK)
 	stop()
 	if err != nil {
@@ -422,6 +453,12 @@ func printHitsJSON(hits []SearchHit) error {
 	return enc.Encode(hits)
 }
 
+func printReportJSON(report QueryReport) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(report)
+}
+
 func printUsage() {
 	fmt.Println(`bcindex <command> [options]
 
@@ -429,7 +466,7 @@ Commands:
   init   --root <repo>
   index  --root <repo> [--full|--diff <rev>] [--tier <fast|balanced|full>] [--progress]
   watch  --root <repo> [--interval 3s] [--debounce 2s] [--tier <fast|balanced|full>] [--progress]
-  query  --repo <id|path> --q <text> --type <text|symbol|mixed|vector> [--json] [--progress]
+  query  --repo <id|path> --q <text> --type <text|symbol|mixed|vector> [--mode <auto|search|context|impact|architecture|quality>] [--json] [--progress]
   status --repo <id|path>
   version [--root <repo>]
   config init [--force]

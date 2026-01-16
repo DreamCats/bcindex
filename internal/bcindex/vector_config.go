@@ -53,6 +53,7 @@ type vectorConfigInit struct {
 type appConfigInit struct {
 	vectorConfigInit `yaml:",inline"`
 	Index            IndexConfig `yaml:"index"`
+	Query            QueryConfig `yaml:"query"`
 }
 
 func LoadVectorConfig() (VectorConfig, error) {
@@ -220,6 +221,7 @@ func WriteDefaultVectorConfig() (string, error) {
 	cfg := appConfigInit{
 		vectorConfigInit: defaultVectorConfigInit(),
 		Index:            defaultIndexConfig(),
+		Query:            defaultQueryConfig(),
 	}
 	data, err := yaml.Marshal(&cfg)
 	if err != nil {

@@ -213,3 +213,87 @@ func newSegment(lines []string, startLine, endLine int) mdSegment {
 func countMarkdownChars(text string) int {
 	return len([]rune(text))
 }
+
+func ExtractMarkdownDocLinks(src []byte) []DocLink {
+	lines := strings.Split(string(src), "\n")
+	var links []DocLink
+	inFence := false
+	fenceMarker := ""
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if isFenceLine(trimmed) {
+			if !inFence {
+				inFence = true
+				fenceMarker = trimmed[:3]
+			} else if strings.HasPrefix(trimmed, fenceMarker) {
+				inFence = false
+				fenceMarker = ""
+			}
+			continue
+		}
+		if inFence {
+			continue
+		}
+		symbols := extractInlineCodeSymbols(line)
+		if len(symbols) == 0 {
+			continue
+		}
+		lineNo := i + 1
+		for _, sym := range symbols {
+			links = append(links, DocLink{
+				Symbol:     sym,
+				Line:       lineNo,
+				Source:     DocLinkSourceMarkdown,
+				Confidence: 0.6,
+			})
+		}
+	}
+	return links
+}
+
+func isFenceLine(line string) bool {
+	return strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~")
+}
+
+func extractInlineCodeSymbols(line string) []string {
+	var symbols []string
+	seen := make(map[string]struct{})
+	rest := line
+	for {
+		start := strings.Index(rest, "`")
+		if start == -1 {
+			break
+		}
+		rest = rest[start+1:]
+		end := strings.Index(rest, "`")
+		if end == -1 {
+			break
+		}
+		code := rest[:end]
+		rest = rest[end+1:]
+		sym := normalizeDocSymbol(code)
+		if sym == "" {
+			continue
+		}
+		if _, ok := seen[sym]; ok {
+			continue
+		}
+		seen[sym] = struct{}{}
+		symbols = append(symbols, sym)
+	}
+	return symbols
+}
+
+func normalizeDocSymbol(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.ContainsAny(trimmed, " \t") {
+		return ""
+	}
+	if len([]rune(trimmed)) > 128 {
+		return ""
+	}
+	return trimmed
+}

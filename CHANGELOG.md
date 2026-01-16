@@ -2,6 +2,104 @@
 
 ## 2026-01-16
 
+- 版本：0.3.35
+- 变更：实现类问句优先使用精确查询并在有代码命中时压制文档噪声。
+- 影响文件：`internal/bcindex/query_context.go`、`internal/bcindex/query.go`、`internal/bcindex/query_text.go`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：未运行
+
+## 2026-01-16
+
+- 版本：0.3.34
+- 变更：查询新增轻量分词变体召回与融合排序，提升自然语言检索稳定性。
+- 影响文件：`internal/bcindex/query_variants.go`、`internal/bcindex/query_text.go`、`internal/bcindex/query.go`、`README.md`、`reference/BCINDEX_MODE_DESIGN.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：未运行
+
+## 2026-01-16
+
+- 版本：0.3.33
+- 变更：context 增加流程类关键词与同义扩展，修正实现类问句识别，提升中文文档命中。
+- 影响文件：`internal/bcindex/query_context.go`、`README.md`、`reference/BCINDEX_MODE_DESIGN.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2026-01-16
+
+- 版本：0.3.32
+- 变更：context 模式识别“实现/逻辑”类问句，优先函数名检索并减弱文档噪声。
+- 影响文件：`internal/bcindex/query_context.go`、`README.md`、`reference/BCINDEX_MODE_DESIGN.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2026-01-16
+
+- 版本：0.3.31
+- 变更：auto 模式优先按问句意图选择 context，改进英文关键词匹配规则，避免误判为 impact/search。
+- 影响文件：`internal/bcindex/query_mode.go`、`README.md`、`reference/BCINDEX_MODE_DESIGN.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2026-01-16
+
+- 版本：0.3.30
+- 变更：search 模式增加文件定位优先与输出紧凑化，auto 触发 search 时可直接返回 package 行。
+- 影响文件：`internal/bcindex/query_mode.go`、`internal/bcindex/query_search.go`、`internal/bcindex/symbol_store.go`、`README.md`、`reference/BCINDEX_MODE_DESIGN.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2026-01-16
+
+- 版本：0.3.29
+- 变更：query mode 默认改为 auto，新增自动推荐规则与 mode 解析展示；更新 README 与 mode 设计说明。
+- 影响文件：`internal/bcindex/query_mode.go`、`internal/bcindex/cli.go`、`README.md`、`reference/BCINDEX_MODE_DESIGN.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2026-01-16
+
+- 版本：0.3.28
+- 变更：补充 mode 多步检索流水线的设计说明，明确内部步骤与各模式流程。
+- 影响文件：`reference/BCINDEX_MODE_DESIGN.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：无
+
+## 2026-01-16
+
+- 版本：0.3.27
+- 变更：新增 query mode 设计草案，明确 mode 语义与 CLI 简化原则。
+- 影响文件：`reference/BCINDEX_MODE_DESIGN.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：无
+
+## 2026-01-16
+
+- 版本：0.3.26
+- 变更：context 模式优先 README 关键章节并允许多段返回，拆分 query 相关实现文件。
+- 影响文件：`internal/bcindex/query.go`、`internal/bcindex/query_context.go`、`internal/bcindex/query_text.go`、`internal/bcindex/query_snippet.go`、`internal/bcindex/query_vector.go`、`internal/bcindex/query_enrich.go`、`internal/bcindex/query_utils.go`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2026-01-16
+
+- 版本：0.3.25
+- 变更：text/mode context 输出改为段落级 snippet，提升自然语言问题可读性。
+- 影响文件：`internal/bcindex/query.go`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2026-01-16
+
+- 版本：0.3.24
+- 变更：context 模式识别问句并更强文档优先、限制同文件重复结果，向量权重调优。
+- 影响文件：`internal/bcindex/query.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2026-01-16
+
+- 版本：0.3.23
+- 变更：context 模式降低 path 权重并优先文档类结果，增强 doc 优先排序。
+- 影响文件：`internal/bcindex/query.go`、`internal/bcindex/query_mode.go`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2026-01-16
+
+- 版本：0.3.22
+- 变更：新增 Markdown 反引号 doc_links 解析，mixed 查询补全关系与文档链接；新增 query mode（context/impact/architecture/quality）与输出预算控制。
+- 影响文件：`internal/bcindex/markdown.go`、`internal/bcindex/indexer.go`、`internal/bcindex/symbol_store.go`、`internal/bcindex/types.go`、`internal/bcindex/query.go`、`internal/bcindex/query_mode.go`、`internal/bcindex/query_config.go`、`internal/bcindex/cli.go`、`internal/bcindex/vector_config.go`、`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：`go build ./cmd/bcindex`
+
+## 2026-01-16
+
 - 版本：0.3.21
 - 变更：完善 README，补充分级索引、关系索引与配置说明，并更新命令示例。
 - 影响文件：`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。

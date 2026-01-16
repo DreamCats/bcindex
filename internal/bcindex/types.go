@@ -48,6 +48,43 @@ type Relation struct {
 	Confidence float64
 }
 
+const (
+	DocLinkSourceMarkdown = "md_backtick"
+)
+
+type DocLink struct {
+	Symbol     string
+	Line       int
+	Source     string
+	Confidence float64
+}
+
+type RelationEdge struct {
+	FromRef    string  `json:"from_ref"`
+	ToRef      string  `json:"to_ref"`
+	Line       int     `json:"line"`
+	Source     string  `json:"source"`
+	Confidence float64 `json:"confidence"`
+}
+
+type RelationSummary struct {
+	Kind  string         `json:"kind"`
+	Edges []RelationEdge `json:"edges,omitempty"`
+}
+
+type DocLinkHit struct {
+	Symbol     string  `json:"symbol"`
+	Line       int     `json:"line"`
+	Source     string  `json:"source"`
+	Confidence float64 `json:"confidence"`
+}
+
+type RelationPairStat struct {
+	FromRef string `json:"from_ref"`
+	ToRef   string `json:"to_ref"`
+	Count   int    `json:"count"`
+}
+
 type IndexContext struct {
 	Tier            IndexTier
 	DirImportPath   map[string]string
@@ -63,13 +100,18 @@ type TextDoc struct {
 }
 
 type SearchHit struct {
-	Kind    string  `json:"kind"`
-	Source  string  `json:"source"`
-	Name    string  `json:"name"`
-	File    string  `json:"file"`
-	Line    int     `json:"line"`
-	Score   float64 `json:"score"`
-	Snippet string  `json:"snippet"`
+	Kind       string            `json:"kind"`
+	Source     string            `json:"source"`
+	Name       string            `json:"name,omitempty"`
+	File       string            `json:"file"`
+	Line       int               `json:"line"`
+	LineEnd    int               `json:"line_end,omitempty"`
+	Score      float64           `json:"score"`
+	Snippet    string            `json:"snippet,omitempty"`
+	Relations  []RelationSummary `json:"relations,omitempty"`
+	DocLinks   []DocLinkHit      `json:"doc_links,omitempty"`
+	Truncated  bool              `json:"truncated,omitempty"`
+	Truncation string            `json:"truncation,omitempty"`
 }
 
 type Status struct {

@@ -9,11 +9,13 @@
 - 关系索引（imports、包依赖 depends_on）
 - 索引分级（fast/balanced/full）
 - 文本检索与符号检索（支持 mixed 融合）
+- mixed 查询补全文档链接与关系摘要
 - 向量索引写入（Qdrant + Volces embedding）
 - 向量检索（vector）与混合检索（mixed）
 - 本地用户目录持久化（`~/.bcindex/`）
 - 增量索引（基于 git diff）
 - watch 监听模式（轮询 + 去抖/批处理）
+- 问题型输出（auto/context/impact/architecture/quality），context 默认优先文档类结果
 
 不包含：
 - MCP stdio API
@@ -50,12 +52,17 @@ go run ./cmd/bcindex watch --root . --interval 3s --debounce 2s --progress --tie
 
 2) 查询示例
 ```bash
+go run ./cmd/bcindex query --root . --q "这个项目是干什么的"
 go run ./cmd/bcindex query --root . --q "IndexRepo" --type symbol
 go run ./cmd/bcindex query --root . --q "BCIndex" --type text
 go run ./cmd/bcindex query --root . --q "索引进度条如何实现" --type vector
 go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed
 go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed --json
 go run ./cmd/bcindex query --root . --q "IndexRepo" --type mixed --progress
+go run ./cmd/bcindex query --root . --q "IndexRepo" --mode context
+go run ./cmd/bcindex query --root . --q "IndexRepo" --mode impact
+go run ./cmd/bcindex query --root . --q "BCIndex" --mode architecture
+go run ./cmd/bcindex query --root . --q "BCIndex" --mode quality
 ```
 
 3) 查看状态
@@ -78,6 +85,24 @@ go run ./cmd/bcindex version
 - CLI 参数 `--tier` 优先于配置文件。
 - `balanced/full` 依赖本机 `go` 命令；若 `go list` 失败，会提示警告并继续索引。
 
+## 问题型输出（mode）
+
+- `auto`：默认模式，按 query 自动选择 context/impact/architecture/quality/search。
+- `context`：围绕 query 组合最相关文档/代码与关系摘要，问句会优先文档并减少代码噪声。
+- `impact`：围绕 query 的相关文件，输出依赖/引用的最小关系摘要。
+- `architecture`：输出仓库关系指标与主要依赖边。
+- `quality`：输出索引覆盖统计（symbols、relations、doc_links、text_docs）。
+
+说明：
+- `--mode` 默认 `auto`，推荐值仅做启发式判断，可用显式 `--mode` 覆盖。
+- `auto` 优先按问句意图走 `context`，只有明确“影响/依赖/位置”诉求才切换模式。
+- 对“实现/逻辑/源码”类问句，`context` 会优先识别函数名并更偏向代码片段。
+- `context` 会对常见命令词做轻量同义扩展（如 index→索引）以匹配中文文档标题。
+- 查询会对自然语言做轻量分词与变体检索，并合并多路命中结果。
+- `context/impact` 会使用 mixed 查询作为基础。
+- `architecture/quality` 暂不依赖 query 内容，但保留 `--q` 作为统一入口。
+- `search` 会自动压缩输出片段，减少无关噪声。
+
 ## 目录结构
 
 索引数据默认存放于：
@@ -95,7 +120,7 @@ go run ./cmd/bcindex version
 bcindex init   --root <repo>
 bcindex index  --root <repo> [--full|--diff <rev>] [--tier <fast|balanced|full>] [--progress]
 bcindex watch  --root <repo> [--interval 3s] [--debounce 2s] [--tier <fast|balanced|full>] [--progress]
-bcindex query  --root <repo> --q <text> --type <text|symbol|mixed|vector> [--json] [--progress]
+bcindex query  --root <repo> --q <text> --type <text|symbol|mixed|vector> [--mode <auto|search|context|impact|architecture|quality>] [--json] [--progress]
 bcindex status --root <repo>
 bcindex version [--root <repo>]
 bcindex config init [--force]
@@ -128,11 +153,14 @@ go run ./cmd/bcindex config init
 - 若 `qdrant_path` 为空，则使用 `qdrant_url` 连接远程 Qdrant 服务。
 - 本地模式会将向量写入 `qdrant_path/vectors.db`。
 - `index.tier` 控制索引分级，默认 `fast`。
+- `query.max_context_chars` 控制问题型输出的最大字符预算。
 
 示例（最简，类似 docs-hub）：
 ```yaml
 index:
   tier: "fast"
+query:
+  max_context_chars: 20000
 qdrant_path: "~/.bcindex/qdrant"
 qdrant_collection: "bcindex_vectors"
 volces_endpoint: "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal"
@@ -159,6 +187,8 @@ vector_overlap_chars: 80
 query_top_k: 10
 index:
   tier: "balanced"
+query:
+  max_context_chars: 20000
 ```
 
 ## 文档参考
