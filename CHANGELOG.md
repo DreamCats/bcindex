@@ -1,5 +1,33 @@
 # CHANGELOG
 
+## 2026-01-16
+
+- 版本：0.3.21
+- 变更：完善 README，补充分级索引、关系索引与配置说明，并更新命令示例。
+- 影响文件：`README.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：无
+
+## 2026-01-16
+
+- 版本：0.3.20
+- 变更：索引新增 tier 配置与 CLI 参数，关系表落地并抽取 Go imports/依赖关系，支持 go list 包依赖生成。
+- 影响文件：`internal/bcindex/index_config.go`、`internal/bcindex/go_deps.go`、`internal/bcindex/go_symbols.go`、`internal/bcindex/indexer.go`、`internal/bcindex/symbol_store.go`、`internal/bcindex/cli.go`、`internal/bcindex/types.go`、`internal/bcindex/vector_config.go`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：无
+
+## 2026-01-16
+
+- 版本：0.3.19
+- 变更：新增吸收 CodeGraph 优点的实现路径与工期拆分文档。
+- 影响文件：`reference/BCINDEX_CODEGRAPH_ADVANTAGES_PLAN.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：无
+
+## 2026-01-16
+
+- 版本：0.3.18
+- 变更：新增 VNext 技术文档与迭代清单，明确索引分级、关系存储与证据化输出规划。
+- 影响文件：`reference/BCINDEX_VNEXT_TECH_SPEC.md`、`reference/BCINDEX_VNEXT_TASKS.md`、`PROJECT_META.md`、`CHANGELOG.md`。
+- 结果：无
+
 ## 2026-01-15
 
 - 版本：0.3.10

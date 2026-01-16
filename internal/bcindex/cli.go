@@ -68,6 +68,7 @@ func runIndex(args []string) int {
 	root := fs.String("root", "", "repo root path")
 	full := fs.Bool("full", false, "full index")
 	diff := fs.String("diff", "", "git diff revision for incremental index")
+	tier := fs.String("tier", "", "index tier: fast|balanced|full")
 	progress := fs.Bool("progress", DefaultProgressEnabled(), "show progress")
 	if err := fs.Parse(args); err != nil {
 		return 1
@@ -76,18 +77,24 @@ func runIndex(args []string) int {
 		fmt.Fprintln(os.Stderr, "cannot use --full with --diff")
 		return 1
 	}
+	indexTier, err := ResolveIndexTier(*tier)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	resolved, err := resolveRoot(*root)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	reporter := NewIndexProgress(*progress)
+	opts := IndexOptions{Tier: indexTier}
 	if strings.TrimSpace(*diff) != "" {
 		paths, _, err := InitRepo(resolved)
 		if err == nil {
 			if !textIndexExists(paths) || !symbolIndexExists(paths) {
 				fmt.Fprintln(os.Stderr, "index missing; running full index first")
-				if err := IndexRepoWithProgress(resolved, reporter); err != nil {
+				if err := IndexRepoWithOptions(resolved, reporter, opts); err != nil {
 					if warn := (*IndexWarning)(nil); errors.As(err, &warn) {
 						fmt.Fprintln(os.Stderr, warn.Error())
 					} else {
@@ -99,7 +106,7 @@ func runIndex(args []string) int {
 				return 0
 			}
 		}
-		if err := IndexRepoDeltaFromGit(resolved, *diff, reporter); err != nil {
+		if err := IndexRepoDeltaFromGitWithOptions(resolved, *diff, reporter, opts); err != nil {
 			if warn := (*IndexWarning)(nil); errors.As(err, &warn) {
 				fmt.Fprintln(os.Stderr, warn.Error())
 			} else {
@@ -110,7 +117,7 @@ func runIndex(args []string) int {
 		fmt.Println(indexCompletionSummary(resolved, true))
 		return 0
 	}
-	if err := IndexRepoWithProgress(resolved, reporter); err != nil {
+	if err := IndexRepoWithOptions(resolved, reporter, opts); err != nil {
 		if warn := (*IndexWarning)(nil); errors.As(err, &warn) {
 			fmt.Fprintln(os.Stderr, warn.Error())
 		} else {
@@ -127,8 +134,14 @@ func runWatch(args []string) int {
 	root := fs.String("root", "", "repo root path")
 	interval := fs.Duration("interval", 3*time.Second, "poll interval")
 	debounceInterval := fs.Duration("debounce", 2*time.Second, "debounce duration")
+	tier := fs.String("tier", "", "index tier: fast|balanced|full")
 	progress := fs.Bool("progress", DefaultProgressEnabled(), "show progress")
 	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+	indexTier, err := ResolveIndexTier(*tier)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	resolved, err := resolveRoot(*root)
@@ -136,6 +149,7 @@ func runWatch(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
+	opts := IndexOptions{Tier: indexTier}
 	fmt.Printf("watching %s (interval %s)\n", resolved, interval.String())
 	debounce := *debounceInterval
 	if debounce < *interval {
@@ -173,7 +187,7 @@ func runWatch(args []string) int {
 			continue
 		}
 		reporter := NewIndexProgress(*progress)
-		if err := IndexRepoDelta(resolved, pending, reporter); err != nil {
+		if err := IndexRepoDeltaWithOptions(resolved, pending, reporter, opts); err != nil {
 			if warn := (*IndexWarning)(nil); errors.As(err, &warn) {
 				fmt.Fprintln(os.Stderr, warn.Error())
 			} else {
@@ -413,8 +427,8 @@ func printUsage() {
 
 Commands:
   init   --root <repo>
-  index  --root <repo> [--full|--diff <rev>] [--progress]
-  watch  --root <repo> [--interval 3s] [--debounce 2s] [--progress]
+  index  --root <repo> [--full|--diff <rev>] [--tier <fast|balanced|full>] [--progress]
+  watch  --root <repo> [--interval 3s] [--debounce 2s] [--tier <fast|balanced|full>] [--progress]
   query  --repo <id|path> --q <text> --type <text|symbol|mixed|vector> [--json] [--progress]
   status --repo <id|path>
   version [--root <repo>]

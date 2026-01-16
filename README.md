@@ -6,15 +6,18 @@
 - Go 符号索引（函数、方法、结构体、接口、变量、常量）
 - Go 文本索引（函数/方法级分块）
 - Markdown 文本分块索引（标题分块 + 超长段落自动拆分）
-- 文本检索与符号检索（支持 mixed 简单融合）
+- 关系索引（imports、包依赖 depends_on）
+- 索引分级（fast/balanced/full）
+- 文本检索与符号检索（支持 mixed 融合）
 - 向量索引写入（Qdrant + Volces embedding）
+- 向量检索（vector）与混合检索（mixed）
 - 本地用户目录持久化（`~/.bcindex/`）
 - 增量索引（基于 git diff）
 - watch 监听模式（轮询 + 去抖/批处理）
 
 不包含：
-- 向量检索/混合检索（Phase 3）
 - MCP stdio API
+- LSP 精确引用解析（gopls）
 
 ## 安装
 
@@ -28,7 +31,7 @@ go install ./cmd/bcindex
 1) 初始化与全量索引
 ```bash
 go run ./cmd/bcindex init --root .
-go run ./cmd/bcindex index --root . --full --progress
+go run ./cmd/bcindex index --root . --full --progress --tier fast
 ```
 
 说明：`index --full` 会自动初始化仓库元信息与目录，`init` 可选。
@@ -42,7 +45,7 @@ go run ./cmd/bcindex index --root . --diff HEAD~1 --progress
 
 1.2) 监听模式（轮询）
 ```bash
-go run ./cmd/bcindex watch --root . --interval 3s --debounce 2s --progress
+go run ./cmd/bcindex watch --root . --interval 3s --debounce 2s --progress --tier fast
 ```
 
 2) 查询示例
@@ -65,6 +68,16 @@ go run ./cmd/bcindex status --root .
 go run ./cmd/bcindex version
 ```
 
+## 索引分级（tier）
+
+- `fast`：仅 AST 符号 + imports 关系，速度最快，默认值。
+- `balanced`：在 fast 基础上运行 `go list` 生成包依赖（depends_on）。
+- `full`：当前与 balanced 行为一致，预留给后续 gopls 解析增强。
+
+说明：
+- CLI 参数 `--tier` 优先于配置文件。
+- `balanced/full` 依赖本机 `go` 命令；若 `go list` 失败，会提示警告并继续索引。
+
 ## 目录结构
 
 索引数据默认存放于：
@@ -72,7 +85,7 @@ go run ./cmd/bcindex version
 ~/.bcindex/
   repos/<repo_id>/
     text/      # Bleve 文本索引
-    symbol/    # SQLite symbols.db
+    symbol/    # SQLite symbols.db（symbols、relations 等）
     meta/      # repo.json
 ```
 
@@ -80,8 +93,8 @@ go run ./cmd/bcindex version
 
 ```
 bcindex init   --root <repo>
-bcindex index  --root <repo> [--full|--diff <rev>] [--progress]
-bcindex watch  --root <repo> [--interval 3s] [--debounce 2s] [--progress]
+bcindex index  --root <repo> [--full|--diff <rev>] [--tier <fast|balanced|full>] [--progress]
+bcindex watch  --root <repo> [--interval 3s] [--debounce 2s] [--tier <fast|balanced|full>] [--progress]
 bcindex query  --root <repo> --q <text> --type <text|symbol|mixed|vector> [--json] [--progress]
 bcindex status --root <repo>
 bcindex version [--root <repo>]
@@ -114,9 +127,12 @@ go run ./cmd/bcindex config init
 - `qdrant_path` 指定本地存储目录（本地模式，不依赖 Qdrant 进程）。
 - 若 `qdrant_path` 为空，则使用 `qdrant_url` 连接远程 Qdrant 服务。
 - 本地模式会将向量写入 `qdrant_path/vectors.db`。
+- `index.tier` 控制索引分级，默认 `fast`。
 
 示例（最简，类似 docs-hub）：
 ```yaml
+index:
+  tier: "fast"
 qdrant_path: "~/.bcindex/qdrant"
 qdrant_collection: "bcindex_vectors"
 volces_endpoint: "https://ark.cn-beijing.volces.com/api/v3/embeddings/multimodal"
@@ -141,6 +157,8 @@ vector_workers: 4
 vector_rerank_candidates: 300
 vector_overlap_chars: 80
 query_top_k: 10
+index:
+  tier: "balanced"
 ```
 
 ## 文档参考

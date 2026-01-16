@@ -55,6 +55,18 @@ func (s *SymbolStore) InitSchema(reset bool) error {
 			file TEXT,
 			vector_id TEXT
 		);`,
+		`CREATE TABLE IF NOT EXISTS relations (
+			id INTEGER PRIMARY KEY,
+			from_ref TEXT,
+			to_ref TEXT,
+			kind TEXT,
+			file TEXT,
+			line INTEGER,
+			confidence REAL,
+			source TEXT
+		);`,
+		`CREATE INDEX IF NOT EXISTS relations_file_idx ON relations(file);`,
+		`CREATE INDEX IF NOT EXISTS relations_kind_idx ON relations(kind);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -68,6 +80,7 @@ func (s *SymbolStore) InitSchema(reset bool) error {
 			`DELETE FROM files;`,
 			`DELETE FROM text_docs;`,
 			`DELETE FROM vector_docs;`,
+			`DELETE FROM relations;`,
 		}
 		for _, stmt := range resetStmts {
 			if _, err := s.db.Exec(stmt); err != nil {
@@ -85,6 +98,17 @@ func (s *SymbolStore) InsertSymbol(sym Symbol) error {
 	)
 	if err != nil {
 		return fmt.Errorf("insert symbol: %w", err)
+	}
+	return nil
+}
+
+func (s *SymbolStore) InsertRelation(rel Relation) error {
+	_, err := s.db.Exec(
+		`INSERT INTO relations (from_ref, to_ref, kind, file, line, confidence, source) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		rel.FromRef, rel.ToRef, rel.Kind, rel.File, rel.Line, rel.Confidence, rel.Source,
+	)
+	if err != nil {
+		return fmt.Errorf("insert relation: %w", err)
 	}
 	return nil
 }
@@ -112,6 +136,22 @@ func (s *SymbolStore) DeleteSymbolsByFile(path string) error {
 	_, err := s.db.Exec(`DELETE FROM symbols WHERE file = ?`, path)
 	if err != nil {
 		return fmt.Errorf("delete symbols: %w", err)
+	}
+	return nil
+}
+
+func (s *SymbolStore) DeleteRelationsByFile(path string) error {
+	_, err := s.db.Exec(`DELETE FROM relations WHERE file = ?`, path)
+	if err != nil {
+		return fmt.Errorf("delete relations: %w", err)
+	}
+	return nil
+}
+
+func (s *SymbolStore) DeleteRelationsByKind(kind string) error {
+	_, err := s.db.Exec(`DELETE FROM relations WHERE kind = ?`, kind)
+	if err != nil {
+		return fmt.Errorf("delete relations by kind: %w", err)
 	}
 	return nil
 }

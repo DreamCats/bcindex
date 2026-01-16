@@ -67,11 +67,19 @@ func (c *indexErrorCollector) Err() error {
 }
 
 func IndexRepo(root string) error {
-	return IndexRepoWithProgress(root, nil)
+	return IndexRepoWithOptions(root, nil, IndexOptions{})
 }
 
 func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
+	return IndexRepoWithOptions(root, reporter, IndexOptions{})
+}
+
+func IndexRepoWithOptions(root string, reporter ProgressReporter, opts IndexOptions) error {
 	paths, meta, err := InitRepo(root)
+	if err != nil {
+		return err
+	}
+	tier, err := resolveIndexTierOption(opts)
 	if err != nil {
 		return err
 	}
@@ -110,6 +118,24 @@ func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 		return err
 	}
 
+	collector := newIndexErrorCollector()
+
+	var pkgIndex *GoPackageIndex
+	if tierAllowsGoList(tier) {
+		pkgIndex, err = BuildGoPackageIndex(paths.Root)
+		if err != nil {
+			collector.Add("go_list", err)
+			pkgIndex = nil
+		} else {
+			for _, rel := range pkgIndex.Depends {
+				if err := store.InsertRelation(rel); err != nil {
+					collector.Add("go_list", err)
+					break
+				}
+			}
+		}
+	}
+
 	files, err := listTrackedFiles(paths.Root)
 	if err != nil {
 		return err
@@ -127,7 +153,6 @@ func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 		defer reporter.Finish()
 	}
 
-	collector := newIndexErrorCollector()
 	var storeMu sync.Mutex
 	var vectorRuntime *VectorRuntime
 	var vectorJobs chan vectorJob
@@ -171,6 +196,11 @@ func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 			}
 		}
 	}
+	indexCtx := IndexContext{Tier: tier}
+	if pkgIndex != nil {
+		indexCtx.DirImportPath = pkgIndex.DirToImportPath
+	}
+
 	for _, rel := range indexable {
 		abs := filepath.Join(paths.Root, filepath.FromSlash(rel))
 		content, err := os.ReadFile(abs)
@@ -185,7 +215,7 @@ func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 		switch ext {
 		case ".go":
 			storeMu.Lock()
-			err := indexGoFile(store, textIndex, rel, content)
+			err := indexGoFile(store, textIndex, rel, content, &indexCtx)
 			storeMu.Unlock()
 			if err != nil {
 				collector.Add(rel, err)
@@ -247,7 +277,15 @@ func IndexRepoWithProgress(root string, reporter ProgressReporter) error {
 }
 
 func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter) error {
+	return IndexRepoDeltaWithOptions(root, changes, reporter, IndexOptions{})
+}
+
+func IndexRepoDeltaWithOptions(root string, changes []FileChange, reporter ProgressReporter, opts IndexOptions) error {
 	paths, meta, err := InitRepo(root)
+	if err != nil {
+		return err
+	}
+	tier, err := resolveIndexTierOption(opts)
 	if err != nil {
 		return err
 	}
@@ -296,6 +334,30 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 				announcePhase(reporter, fmt.Sprintf("phase:vector mode=%s batch=%d", mode, vectorCfg.VectorBatchSize))
 			}
 		}
+	}
+
+	var pkgIndex *GoPackageIndex
+	if tierAllowsGoList(tier) {
+		pkgIndex, err = BuildGoPackageIndex(paths.Root)
+		if err != nil {
+			collector.Add("go_list", err)
+			pkgIndex = nil
+		} else {
+			if err := store.DeleteRelationsByKind(RelationKindDependsOn); err != nil {
+				collector.Add("relations", err)
+			}
+			for _, rel := range pkgIndex.Depends {
+				if err := store.InsertRelation(rel); err != nil {
+					collector.Add("relations", err)
+					break
+				}
+			}
+		}
+	}
+
+	indexCtx := IndexContext{Tier: tier}
+	if pkgIndex != nil {
+		indexCtx.DirImportPath = pkgIndex.DirToImportPath
 	}
 
 	if reporter != nil {
@@ -350,7 +412,7 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 			ext := strings.ToLower(filepath.Ext(change.Path))
 			switch ext {
 			case ".go":
-				if err := indexGoFile(store, bleveIndexAdapter{index: textIndex}, change.Path, content); err != nil {
+				if err := indexGoFile(store, bleveIndexAdapter{index: textIndex}, change.Path, content, &indexCtx); err != nil {
 					collector.Add(change.Path, err)
 					if reporter != nil {
 						reporter.Increment()
@@ -436,6 +498,10 @@ func IndexRepoDelta(root string, changes []FileChange, reporter ProgressReporter
 }
 
 func IndexRepoDeltaFromGit(root, rev string, reporter ProgressReporter) error {
+	return IndexRepoDeltaFromGitWithOptions(root, rev, reporter, IndexOptions{})
+}
+
+func IndexRepoDeltaFromGitWithOptions(root, rev string, reporter ProgressReporter, opts IndexOptions) error {
 	changes, err := gitDiffChanges(root, rev)
 	if err != nil {
 		return err
@@ -447,7 +513,7 @@ func IndexRepoDeltaFromGit(root, rev string, reporter ProgressReporter) error {
 		}
 		return nil
 	}
-	return IndexRepoDelta(root, changes, reporter)
+	return IndexRepoDeltaWithOptions(root, changes, reporter, opts)
 }
 
 func removeFileIndex(store *SymbolStore, textIndex bleve.Index, rel string) error {
@@ -468,6 +534,9 @@ func removeFileIndex(store *SymbolStore, textIndex bleve.Index, rel string) erro
 		return err
 	}
 	if err := store.DeleteSymbolsByFile(rel); err != nil {
+		return err
+	}
+	if err := store.DeleteRelationsByFile(rel); err != nil {
 		return err
 	}
 	if err := store.DeleteFile(rel); err != nil {
@@ -656,8 +725,8 @@ func findDocIDsByPath(textIndex bleve.Index, path string) ([]string, error) {
 	return ids, nil
 }
 
-func indexGoFile(store *SymbolStore, textIndex TextIndexer, rel string, content []byte) error {
-	symbols, err := ExtractGoSymbols(rel, content)
+func indexGoFile(store *SymbolStore, textIndex TextIndexer, rel string, content []byte, ctx *IndexContext) error {
+	symbols, imports, err := ExtractGoSymbolsAndImports(rel, content)
 	if err != nil {
 		return fmt.Errorf("parse go file %s: %w", rel, err)
 	}
@@ -665,6 +734,9 @@ func indexGoFile(store *SymbolStore, textIndex TextIndexer, rel string, content 
 		if err := store.InsertSymbol(sym); err != nil {
 			return err
 		}
+	}
+	if err := insertImportRelations(store, rel, imports, ctx); err != nil {
+		return err
 	}
 
 	return indexGoTextDocs(store, textIndex, rel, content)
@@ -716,6 +788,42 @@ func indexGoTextDocs(store *SymbolStore, textIndex TextIndexer, rel string, cont
 		}
 	}
 	return nil
+}
+
+func insertImportRelations(store *SymbolStore, rel string, imports []GoImport, ctx *IndexContext) error {
+	if len(imports) == 0 {
+		return nil
+	}
+	fromRef := packageRefForFile(rel, ctx)
+	for _, imp := range imports {
+		relEntry := Relation{
+			FromRef:    fromRef,
+			ToRef:      imp.Path,
+			Kind:       RelationKindImports,
+			File:       rel,
+			Line:       imp.Line,
+			Source:     RelationSourceAST,
+			Confidence: 1.0,
+		}
+		if err := store.InsertRelation(relEntry); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func packageRefForFile(rel string, ctx *IndexContext) string {
+	dir := filepath.Dir(filepath.FromSlash(rel))
+	dir = filepath.ToSlash(dir)
+	if dir == "" || dir == "." {
+		dir = "."
+	}
+	if ctx != nil && ctx.DirImportPath != nil {
+		if imp, ok := ctx.DirImportPath[dir]; ok && strings.TrimSpace(imp) != "" {
+			return imp
+		}
+	}
+	return dir
 }
 
 func indexMarkdownFile(store *SymbolStore, textIndex TextIndexer, rel string, content []byte) error {

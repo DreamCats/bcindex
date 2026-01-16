@@ -50,6 +50,11 @@ type vectorConfigInit struct {
 	QueryTopK        int    `yaml:"query_top_k"`
 }
 
+type appConfigInit struct {
+	vectorConfigInit `yaml:",inline"`
+	Index            IndexConfig `yaml:"index"`
+}
+
 func LoadVectorConfig() (VectorConfig, error) {
 	path, err := vectorConfigPath()
 	if err != nil {
@@ -212,7 +217,10 @@ func WriteDefaultVectorConfig() (string, error) {
 	if _, err := os.Stat(path); err == nil {
 		return path, nil
 	}
-	cfg := defaultVectorConfigInit()
+	cfg := appConfigInit{
+		vectorConfigInit: defaultVectorConfigInit(),
+		Index:            defaultIndexConfig(),
+	}
 	data, err := yaml.Marshal(&cfg)
 	if err != nil {
 		return "", err

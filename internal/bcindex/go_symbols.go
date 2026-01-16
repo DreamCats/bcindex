@@ -6,20 +6,50 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"strconv"
 	"strings"
 )
 
 func ExtractGoSymbols(rel string, src []byte) ([]Symbol, error) {
+	symbols, _, err := ExtractGoSymbolsAndImports(rel, src)
+	return symbols, err
+}
+
+type GoImport struct {
+	Path string
+	Line int
+}
+
+func ExtractGoSymbolsAndImports(rel string, src []byte) ([]Symbol, []GoImport, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, rel, src, parser.ParseComments)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var symbols []Symbol
+	var imports []GoImport
 	pkg := ""
 	if file.Name != nil {
 		pkg = file.Name.Name
+	}
+	for _, spec := range file.Imports {
+		if spec.Path == nil {
+			continue
+		}
+		pathValue := strings.TrimSpace(spec.Path.Value)
+		pathValue = strings.Trim(pathValue, "`")
+		path, err := strconv.Unquote(pathValue)
+		if err != nil {
+			path = strings.Trim(pathValue, "\"")
+		}
+		line := fset.Position(spec.Pos()).Line
+		if path != "" {
+			imports = append(imports, GoImport{
+				Path: path,
+				Line: line,
+			})
+		}
 	}
 
 	for _, decl := range file.Decls {
@@ -82,7 +112,7 @@ func ExtractGoSymbols(rel string, src []byte) ([]Symbol, error) {
 		}
 	}
 
-	return symbols, nil
+	return symbols, imports, nil
 }
 
 func typeString(fset *token.FileSet, expr ast.Expr) string {

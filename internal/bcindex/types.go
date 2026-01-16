@@ -31,6 +31,28 @@ type Symbol struct {
 	Doc  string
 }
 
+const (
+	RelationKindImports   = "imports"
+	RelationKindDependsOn = "depends_on"
+	RelationSourceAST     = "ast"
+	RelationSourceGoList  = "go_list"
+)
+
+type Relation struct {
+	FromRef    string
+	ToRef      string
+	Kind       string
+	File       string
+	Line       int
+	Source     string
+	Confidence float64
+}
+
+type IndexContext struct {
+	Tier            IndexTier
+	DirImportPath   map[string]string
+}
+
 type TextDoc struct {
 	Path      string `json:"path" bleve:"path"`
 	Kind      string `json:"kind" bleve:"kind"`
