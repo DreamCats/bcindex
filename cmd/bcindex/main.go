@@ -210,6 +210,10 @@ func loadConfig(configPath string) (*config.Config, error) {
 	return config.Load()
 }
 
+// resolveRepoRoot resolves the absolute path of the repository root directory.
+// It first converts the relative path to an absolute path.
+// If the path is a Git repository, it returns the Git root directory.
+// Otherwise, it returns the absolute path.
 func resolveRepoRoot(repoPath string) (string, error) {
 	root := repoPath
 	if root == "" || root == "." {

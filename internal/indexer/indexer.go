@@ -3,7 +3,12 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/DreamCats/bcindex/internal/ast"
@@ -24,6 +29,7 @@ type Indexer struct {
 	packageStore *store.PackageStore
 	edgeStore    *store.EdgeStore
 	vectorStore  *store.VectorStore
+	repoStore    *store.RepositoryStore
 }
 
 // NewIndexer creates a new indexer
@@ -46,6 +52,7 @@ func NewIndexer(cfg *config.Config) (*Indexer, error) {
 	packageStore := store.NewPackageStore(db)
 	edgeStore := store.NewEdgeStore(db)
 	vectorStore := store.NewVectorStore(db)
+	repoStore := store.NewRepositoryStore(db)
 
 	return &Indexer{
 		cfg:          cfg,
@@ -57,6 +64,7 @@ func NewIndexer(cfg *config.Config) (*Indexer, error) {
 		packageStore: packageStore,
 		edgeStore:    edgeStore,
 		vectorStore:  vectorStore,
+		repoStore:    repoStore,
 	}, nil
 }
 
@@ -67,18 +75,62 @@ func (idx *Indexer) IndexRepository(ctx context.Context, repoPath string) error 
 	if targetRepoPath == "" {
 		targetRepoPath = repoPath
 	}
-
-	if err := idx.resetRepository(targetRepoPath); err != nil {
-		return err
+	if idx.cfg.Repo.Path == "" {
+		idx.cfg.Repo.Path = targetRepoPath
 	}
 
-	// Step 1: Extract symbols and relations
-	log.Printf("Extracting symbols and relations from %s", repoPath)
-	symbols, edges, err := idx.pipeline.ExtractRepositoryWithRelations(repoPath)
+	repoMeta, err := idx.repoStore.GetByRootPath(targetRepoPath)
 	if err != nil {
-		return fmt.Errorf("failed to extract repository: %w", err)
+		return fmt.Errorf("failed to load repository metadata: %w", err)
 	}
-	log.Printf("Extracted %d symbols and %d relations", len(symbols), len(edges))
+
+	var symbols []*ast.ExtractedSymbol
+	var edges []*ast.Edge
+
+	if repoMeta == nil || repoMeta.LastIndexedAt == nil || repoMeta.LastIndexedAt.IsZero() {
+		if err := idx.resetRepository(targetRepoPath); err != nil {
+			return err
+		}
+
+		// Step 1: Extract symbols and relations
+		log.Printf("Extracting symbols and relations from %s", repoPath)
+		symbols, edges, err = idx.pipeline.ExtractRepositoryWithRelations(repoPath)
+		if err != nil {
+			return fmt.Errorf("failed to extract repository: %w", err)
+		}
+		log.Printf("Extracted %d symbols and %d relations", len(symbols), len(edges))
+	} else {
+		log.Printf("Incremental indexing since %s", repoMeta.LastIndexedAt.UTC().Format(time.RFC3339))
+		changedPackages, err := idx.findChangedPackages(repoPath, targetRepoPath, *repoMeta.LastIndexedAt)
+		if err != nil {
+			return fmt.Errorf("failed to detect changed packages: %w", err)
+		}
+
+		if len(changedPackages) == 0 {
+			log.Printf("No package changes detected for %s", targetRepoPath)
+			if err := idx.updateRepositoryMeta(targetRepoPath); err != nil {
+				return err
+			}
+			return nil
+		}
+
+		log.Printf("Detected %d changed package(s)", len(changedPackages))
+		if err := idx.clearPackages(changedPackages); err != nil {
+			return err
+		}
+
+		for pkgPath := range changedPackages {
+			pkgSymbols, pkgEdges, err := idx.pipeline.ExtractPackageWithRelationsByPath(pkgPath, repoPath)
+			if err != nil {
+				log.Printf("Warning: failed to extract package %s: %v", pkgPath, err)
+				continue
+			}
+			symbols = append(symbols, pkgSymbols...)
+			edges = append(edges, pkgEdges...)
+		}
+
+		log.Printf("Extracted %d symbols and %d relations from changed packages", len(symbols), len(edges))
+	}
 
 	// Step 2: Generate semantic descriptions and prepare for embedding
 	log.Printf("Generating semantic descriptions")
@@ -112,6 +164,10 @@ func (idx *Indexer) IndexRepository(ctx context.Context, repoPath string) error 
 		return fmt.Errorf("failed to generate embeddings: %w", err)
 	}
 
+	if err := idx.updateRepositoryMeta(targetRepoPath); err != nil {
+		return err
+	}
+
 	duration := time.Since(startTime)
 	log.Printf("Indexing completed in %v", duration)
 
@@ -136,6 +192,156 @@ func (idx *Indexer) resetRepository(repoPath string) error {
 	}
 	if err := idx.symbolStore.DeleteByRepo(repoPath); err != nil {
 		return fmt.Errorf("failed to clear symbols: %w", err)
+	}
+
+	return nil
+}
+
+func (idx *Indexer) findChangedPackages(repoPath string, dbRepoPath string, since time.Time) (map[string]bool, error) {
+	changed := make(map[string]bool)
+	fileSymbols, err := idx.symbolStore.ListFilesByRepo(dbRepoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load indexed file symbols: %w", err)
+	}
+
+	fileToPackage := make(map[string]string, len(fileSymbols))
+	for _, fileSymbol := range fileSymbols {
+		fileToPackage[fileSymbol.FilePath] = fileSymbol.PackagePath
+	}
+
+	for filePath, pkgPath := range fileToPackage {
+		if _, err := os.Stat(filePath); err != nil {
+			if os.IsNotExist(err) {
+				changed[pkgPath] = true
+				continue
+			}
+			return nil, fmt.Errorf("failed to stat file %s: %w", filePath, err)
+		}
+	}
+
+	walkFn := func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "vendor", "third_party":
+				return fs.SkipDir
+			}
+			return nil
+		}
+
+		if filepath.Ext(path) != ".go" {
+			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+
+		if info.ModTime().After(since) {
+			if pkgPath, ok := fileToPackage[path]; ok && pkgPath != "" {
+				changed[pkgPath] = true
+				return nil
+			}
+
+			pkgPath, err := idx.resolvePackagePath(repoPath, path)
+			if err != nil {
+				log.Printf("Warning: failed to resolve package for %s: %v", path, err)
+				return nil
+			}
+			if pkgPath != "" {
+				changed[pkgPath] = true
+			}
+		}
+
+		return nil
+	}
+
+	if err := filepath.WalkDir(repoPath, walkFn); err != nil {
+		return nil, fmt.Errorf("failed to scan repository files: %w", err)
+	}
+
+	return changed, nil
+}
+
+func (idx *Indexer) resolvePackagePath(repoRoot string, filePath string) (string, error) {
+	dir := filepath.Dir(filePath)
+	relDir, err := filepath.Rel(repoRoot, dir)
+	if err != nil || strings.HasPrefix(relDir, "..") {
+		return "", fmt.Errorf("file is outside repository")
+	}
+
+	pattern := "./"
+	if relDir != "." {
+		pattern = "./" + filepath.ToSlash(relDir)
+	}
+
+	cmd := exec.Command("go", "list", "-f", "{{.ImportPath}}", pattern)
+	cmd.Dir = repoRoot
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("go list %s failed: %w", pattern, err)
+	}
+
+	importPath := strings.TrimSpace(string(output))
+	if importPath == "" || importPath == "command-line-arguments" {
+		return "", fmt.Errorf("invalid import path %q", importPath)
+	}
+
+	return importPath, nil
+}
+
+func (idx *Indexer) clearPackages(packagePaths map[string]bool) error {
+	for pkgPath := range packagePaths {
+		if err := idx.edgeStore.DeleteByPackage(pkgPath); err != nil {
+			return fmt.Errorf("failed to clear edges for package %s: %w", pkgPath, err)
+		}
+		if err := idx.vectorStore.DeleteByPackage(pkgPath); err != nil {
+			return fmt.Errorf("failed to clear embeddings for package %s: %w", pkgPath, err)
+		}
+		if err := idx.symbolStore.DeleteByPackage(pkgPath); err != nil {
+			return fmt.Errorf("failed to clear symbols for package %s: %w", pkgPath, err)
+		}
+		if err := idx.packageStore.Delete(pkgPath); err != nil {
+			return fmt.Errorf("failed to clear package %s: %w", pkgPath, err)
+		}
+	}
+	return nil
+}
+
+func (idx *Indexer) updateRepositoryMeta(repoPath string) error {
+	symbolCount, err := idx.symbolStore.CountByRepo(repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to count symbols: %w", err)
+	}
+	packageCount, err := idx.packageStore.CountByRepo(repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to count packages: %w", err)
+	}
+	edgeCount, err := idx.edgeStore.CountByRepo(repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to count edges: %w", err)
+	}
+	vectorCount, err := idx.vectorStore.CountByRepo(repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to count embeddings: %w", err)
+	}
+
+	now := time.Now().UTC()
+	repo := &store.Repository{
+		RootPath:      repoPath,
+		LastIndexedAt: &now,
+		SymbolCount:   symbolCount,
+		PackageCount:  packageCount,
+		EdgeCount:     edgeCount,
+		HasEmbeddings: vectorCount > 0,
+	}
+
+	if err := idx.repoStore.Upsert(repo); err != nil {
+		return fmt.Errorf("failed to update repository metadata: %w", err)
 	}
 
 	return nil

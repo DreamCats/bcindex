@@ -186,6 +186,21 @@ func (e *EdgeStore) CountByType(edgeType string) (int, error) {
 	return count, err
 }
 
+// CountByRepo returns the number of edges associated with a repository.
+func (e *EdgeStore) CountByRepo(repoPath string) (int, error) {
+	var count int
+	query := `
+		SELECT COUNT(*)
+		FROM edges
+		WHERE from_id IN (SELECT id FROM symbols WHERE repo_path = ?)
+		OR to_id IN (SELECT id FROM symbols WHERE repo_path = ?)
+	`
+	if err := e.db.sqlDB.QueryRow(query, repoPath, repoPath).Scan(&count); err != nil {
+		return 0, fmt.Errorf("failed to count edges by repo: %w", err)
+	}
+	return count, nil
+}
+
 // GetConnectedComponents finds symbols connected to a given symbol (within N hops)
 func (e *EdgeStore) GetConnectedComponents(symbolID string, maxDepth int) (map[string][]string, error) {
 	// BFS to find connected symbols

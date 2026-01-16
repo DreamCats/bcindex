@@ -200,6 +200,38 @@ func (s *SymbolStore) GetByRepo(repoPath string) ([]*Symbol, error) {
 	return symbols, nil
 }
 
+// FileSymbol represents a file-level symbol record.
+type FileSymbol struct {
+	PackagePath string
+	FilePath    string
+}
+
+// ListFilesByRepo returns file symbols for a repository.
+func (s *SymbolStore) ListFilesByRepo(repoPath string) ([]FileSymbol, error) {
+	query := `
+		SELECT package_path, file_path
+		FROM symbols
+		WHERE repo_path = ? AND kind = ?
+	`
+
+	rows, err := s.db.sqlDB.Query(query, repoPath, KindFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query file symbols: %w", err)
+	}
+	defer rows.Close()
+
+	var files []FileSymbol
+	for rows.Next() {
+		var fs FileSymbol
+		if err := rows.Scan(&fs.PackagePath, &fs.FilePath); err != nil {
+			return nil, fmt.Errorf("failed to scan file symbol: %w", err)
+		}
+		files = append(files, fs)
+	}
+
+	return files, nil
+}
+
 // Update updates a symbol's semantic text and tokens
 func (s *SymbolStore) Update(id string, semanticText string, tokens []string) error {
 	now := time.Now().UTC()

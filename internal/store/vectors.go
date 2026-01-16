@@ -296,6 +296,19 @@ func (v *VectorStore) DeleteByPrefix(prefix string) error {
 	return nil
 }
 
+// DeleteByPackage removes all vectors for symbols in a package.
+func (v *VectorStore) DeleteByPackage(pkgPath string) error {
+	query := `
+		DELETE FROM embeddings
+		WHERE symbol_id IN (SELECT id FROM symbols WHERE package_path = ?)
+	`
+	_, err := v.db.sqlDB.Exec(query, pkgPath)
+	if err != nil {
+		return fmt.Errorf("failed to delete vectors by package: %w", err)
+	}
+	return nil
+}
+
 // DeleteByRepo removes all vectors for symbols belonging to a repository.
 func (v *VectorStore) DeleteByRepo(repoPath string) error {
 	query := `
@@ -307,6 +320,20 @@ func (v *VectorStore) DeleteByRepo(repoPath string) error {
 		return fmt.Errorf("failed to delete vectors by repo: %w", err)
 	}
 	return nil
+}
+
+// CountByRepo returns the number of vectors for a repository.
+func (v *VectorStore) CountByRepo(repoPath string) (int, error) {
+	var count int
+	query := `
+		SELECT COUNT(*)
+		FROM embeddings
+		WHERE symbol_id IN (SELECT id FROM symbols WHERE repo_path = ?)
+	`
+	if err := v.db.sqlDB.QueryRow(query, repoPath).Scan(&count); err != nil {
+		return 0, fmt.Errorf("failed to count vectors by repo: %w", err)
+	}
+	return count, nil
 }
 
 // Count returns the number of vectors stored

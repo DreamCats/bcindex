@@ -35,9 +35,9 @@ func (p *Pipeline) ExtractRepository(root string) ([]*ExtractedSymbol, error) {
 
 	// Load all packages
 	config := &LoadConfig{
-		Root:   absRoot,
+		Root:     absRoot,
 		Patterns: []string{"./..."},
-		Tests:  false,
+		Tests:    false,
 	}
 
 	pkgs, err := p.loader.LoadRepo(config)
@@ -98,6 +98,26 @@ func (p *Pipeline) ExtractPackageByPath(importPath string, repoPath string) ([]*
 	}
 
 	return p.ExtractPackage(pkg, repoPath)
+}
+
+// ExtractPackageWithRelationsByPath loads a package and extracts symbols and relationships.
+func (p *Pipeline) ExtractPackageWithRelationsByPath(importPath string, repoPath string) ([]*ExtractedSymbol, []*Edge, error) {
+	pkg, err := p.loader.LoadPackage(importPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load package %s: %w", importPath, err)
+	}
+
+	symbols, err := p.ExtractPackage(pkg, repoPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to extract package %s: %w", importPath, err)
+	}
+
+	edges, err := p.ExtractRelations(pkg, repoPath, symbols)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to extract relations for %s: %w", importPath, err)
+	}
+
+	return symbols, edges, nil
 }
 
 // ExtractFile loads and extracts symbols from a single file

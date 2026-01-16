@@ -53,7 +53,7 @@ type Symbol struct {
 // TypeDetails contains additional information for type-level symbols
 type TypeDetails struct {
 	// For interfaces
-	IsInterface     bool     `json:"is_interface"`
+	IsInterface      bool     `json:"is_interface"`
 	InterfaceMethods []string `json:"interface_methods,omitempty"`
 
 	// For structs
@@ -109,12 +109,12 @@ type Package struct {
 	Summary string `json:"summary"` // Package responsibilities and purpose
 
 	// Key exports
-	KeyTypes  []string `json:"key_types"`  // Most important types
-	KeyFuncs  []string `json:"key_funcs"`  // Most important functions
+	KeyTypes   []string `json:"key_types"`  // Most important types
+	KeyFuncs   []string `json:"key_funcs"`  // Most important functions
 	Interfaces []string `json:"interfaces"` // All interfaces
 
 	// Dependencies
-	Imports    []string `json:"imports"`    // What this package imports
+	Imports    []string `json:"imports"`     // What this package imports
 	ImportedBy []string `json:"imported_by"` // What imports this package
 
 	// Statistics
@@ -123,9 +123,22 @@ type Package struct {
 	LineCount   int `json:"line_count"`
 
 	// Metadata
-	RepoPath string    `json:"repo_path"`
+	RepoPath  string    `json:"repo_path"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Repository tracks indexing metadata for a repository.
+type Repository struct {
+	ID            string     `json:"id"`
+	RootPath      string     `json:"root_path"`
+	LastIndexedAt *time.Time `json:"last_indexed_at,omitempty"`
+	SymbolCount   int        `json:"symbol_count"`
+	PackageCount  int        `json:"package_count"`
+	EdgeCount     int        `json:"edge_count"`
+	HasEmbeddings bool       `json:"has_embeddings"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 // PackageCard is the LLM-friendly representation of a package
@@ -133,7 +146,7 @@ type PackageCard struct {
 	Path       string   `json:"path"`
 	Role       string   `json:"role"`
 	Summary    string   `json:"summary"`
-	Why        []string `json:"why"`        // Reasons for recommendation
+	Why        []string `json:"why"`         // Reasons for recommendation
 	KeySymbols []string `json:"key_symbols"` // Important symbols to look at
 	Imports    []string `json:"imports"`
 	ImportedBy []string `json:"imported_by"`
@@ -147,7 +160,7 @@ type SymbolCard struct {
 	Signature string   `json:"signature"`
 	File      string   `json:"file"`
 	Line      int      `json:"line"`
-	Why       []string `json:"why"`       // Reasons for recommendation
+	Why       []string `json:"why"`               // Reasons for recommendation
 	Snippet   string   `json:"snippet,omitempty"` // Code snippet (optional, controlled)
 }
 
@@ -163,40 +176,40 @@ type EvidencePack struct {
 
 // CodeSnippet represents a minimal code excerpt
 type CodeSnippet struct {
-	FilePath    string `json:"file_path"`
-	StartLine   int    `json:"start_line"`
-	EndLine     int    `json:"end_line"`
-	Content     string `json:"content"`
-	Reason      string `json:"reason"` // Why this snippet is included
+	FilePath  string `json:"file_path"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+	Content   string `json:"content"`
+	Reason    string `json:"reason"` // Why this snippet is included
 }
 
 // PackMetadata provides information about the evidence pack
 type PackMetadata struct {
-	TotalSymbols     int       `json:"total_symbols"`
-	TotalPackages    int       `json:"total_packages"`
-	TotalLines       int       `json:"total_lines"`
-	HasVectorSearch  bool      `json:"has_vector_search"`
-	GeneratedAt      time.Time `json:"generated_at"`
+	TotalSymbols    int       `json:"total_symbols"`
+	TotalPackages   int       `json:"total_packages"`
+	TotalLines      int       `json:"total_lines"`
+	HasVectorSearch bool      `json:"has_vector_search"`
+	GeneratedAt     time.Time `json:"generated_at"`
 }
 
 // Edge types constants
 const (
-	EdgeTypeCalls       = "calls"
-	EdgeTypeImplements  = "implements"
-	EdgeTypeImports     = "imports"
-	EdgeTypeReferences  = "references"
-	EdgeTypeEmbeds      = "embeds"
+	EdgeTypeCalls      = "calls"
+	EdgeTypeImplements = "implements"
+	EdgeTypeImports    = "imports"
+	EdgeTypeReferences = "references"
+	EdgeTypeEmbeds     = "embeds"
 )
 
 // Package role constants (inferred from directory name, imports, etc.)
 const (
-	RoleDomain          = "domain"
-	RoleApplication     = "application"
-	RoleInfrastructure  = "infrastructure"
-	RoleInterface       = "interface"
-	RoleAdapter         = "adapter"
-	RoleUtil            = "util"
-	RoleUnknown         = "unknown"
+	RoleDomain         = "domain"
+	RoleApplication    = "application"
+	RoleInfrastructure = "infrastructure"
+	RoleInterface      = "interface"
+	RoleAdapter        = "adapter"
+	RoleUtil           = "util"
+	RoleUnknown        = "unknown"
 )
 
 // Symbol kind constants
