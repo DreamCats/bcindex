@@ -23,6 +23,16 @@
 
 ## 安装
 
+### 方式 1：通过 go install 安装（推荐）
+
+```bash
+go install github.com/DreamCats/bcindex/cmd/bcindex@latest
+```
+
+安装后可以直接使用 `bcindex` 命令。
+
+### 方式 2：从源码安装
+
 在仓库根目录执行：
 ```bash
 go install ./cmd/bcindex

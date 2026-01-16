@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"bcodingindex/internal/bcindex"
+	"github.com/DreamCats/bcindex/internal/bcindex"
 )
 
 func main() {
