@@ -22,10 +22,10 @@ func NewVectorStore(db *DB) *VectorStore {
 
 // ScoredResult represents a search result with similarity score
 type ScoredResult struct {
-	SymbolID   string
-	Score      float32
-	Distance   float32
-	Symbol     *Symbol
+	SymbolID string
+	Score    float32
+	Distance float32
+	Symbol   *Symbol
 }
 
 // Insert inserts or updates a vector for a symbol
@@ -296,6 +296,19 @@ func (v *VectorStore) DeleteByPrefix(prefix string) error {
 	return nil
 }
 
+// DeleteByRepo removes all vectors for symbols belonging to a repository.
+func (v *VectorStore) DeleteByRepo(repoPath string) error {
+	query := `
+		DELETE FROM embeddings
+		WHERE symbol_id IN (SELECT id FROM symbols WHERE repo_path = ?)
+	`
+	_, err := v.db.sqlDB.Exec(query, repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to delete vectors by repo: %w", err)
+	}
+	return nil
+}
+
 // Count returns the number of vectors stored
 func (v *VectorStore) Count() (int, error) {
 	var count int
@@ -318,9 +331,9 @@ func (v *VectorStore) HasVector(symbolID string) (bool, error) {
 
 // SearchFilters provides filtering options for vector search
 type SearchFilters struct {
-	Kinds          []string // Filter by symbol kinds
-	ExportedyOnly  bool     // Only exported symbols
-	PackagePath    string   // Filter by package path
+	Kinds         []string // Filter by symbol kinds
+	ExportedyOnly bool     // Only exported symbols
+	PackagePath   string   // Filter by package path
 }
 
 // Helper functions for vector serialization

@@ -421,12 +421,14 @@ func handleSearch(cfg *config.Config, args []string) {
 
 	var topK int
 	var vectorOnly, keywordOnly, jsonOutput, verbose bool
+	var includeUnexported bool
 
 	fs.IntVar(&topK, "k", 10, "Number of results to return")
 	fs.BoolVar(&vectorOnly, "vector-only", false, "Use vector search only")
 	fs.BoolVar(&keywordOnly, "keyword-only", false, "Use keyword search only")
 	fs.BoolVar(&jsonOutput, "json", false, "Output results as JSON")
 	fs.BoolVar(&verbose, "v", false, "Verbose output (show scores and reasons)")
+	fs.BoolVar(&includeUnexported, "all", false, "Include unexported symbols")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, `USAGE:
@@ -455,6 +457,9 @@ EXAMPLES:
 
     # Verbose output with scores
     bcindex search "order status" -v
+
+    # Include unexported symbols
+    bcindex search "outputJSON" -all
 `)
 	}
 
@@ -490,6 +495,9 @@ EXAMPLES:
 	// Configure search options
 	opts := retrieval.DefaultSearchOptions()
 	opts.TopK = topK
+	if includeUnexported {
+		opts.ExportedOnly = false
+	}
 
 	if vectorOnly {
 		opts.VectorWeight = 1.0

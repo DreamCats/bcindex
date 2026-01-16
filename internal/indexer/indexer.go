@@ -128,6 +128,9 @@ func (idx *Indexer) resetRepository(repoPath string) error {
 	}
 
 	log.Printf("Existing index found for %s (%d symbols), clearing", repoPath, count)
+	if err := idx.vectorStore.DeleteByRepo(repoPath); err != nil {
+		return fmt.Errorf("failed to clear embeddings: %w", err)
+	}
 	if err := idx.packageStore.DeleteByRepo(repoPath); err != nil {
 		return fmt.Errorf("failed to clear packages: %w", err)
 	}

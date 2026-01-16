@@ -94,26 +94,14 @@ func (p *PackageStore) Get(path string) (*Package, error) {
 		FROM packages WHERE path = ?
 	`
 
-	pkg := &Package{}
-	var keyTypesJSON, keyFuncsJSON, interfacesJSON, importsJSON, importedByJSON string
-
-	err := p.db.sqlDB.QueryRow(query, path).Scan(
-		&pkg.Path, &pkg.Name, &pkg.Role, &pkg.Summary,
-		&keyTypesJSON, &keyFuncsJSON, &interfacesJSON,
-		&importsJSON, &importedByJSON,
-		&pkg.FileCount, &pkg.SymbolCount, &pkg.LineCount,
-		&pkg.RepoPath, &pkg.CreatedAt, &pkg.UpdatedAt,
-	)
+	row := p.db.sqlDB.QueryRow(query, path)
+	pkg, err := p.scanPackageRow(row)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get package: %w", err)
-	}
-
-	if err := p.unmarshalJSONFields(keyTypesJSON, keyFuncsJSON, interfacesJSON, importsJSON, importedByJSON, pkg); err != nil {
-		return nil, err
 	}
 
 	return pkg, nil
@@ -137,7 +125,7 @@ func (p *PackageStore) GetByRepo(repoPath string) ([]*Package, error) {
 
 	var packages []*Package
 	for rows.Next() {
-		pkg, err := p.scanPackage(rows)
+		pkg, err := p.scanPackageRow(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -256,21 +244,34 @@ func (p *PackageStore) CountByRepo(repoPath string) (int, error) {
 }
 
 // scanPackage scans a row into a Package
-func (p *PackageStore) scanPackage(rows *sql.Rows) (*Package, error) {
+func (p *PackageStore) scanPackageRow(scanner rowScanner) (*Package, error) {
 	pkg := &Package{}
 	var keyTypesJSON, keyFuncsJSON, interfacesJSON, importsJSON, importedByJSON string
+	var createdAtValue any
+	var updatedAtValue any
 
-	err := rows.Scan(
+	err := scanner.Scan(
 		&pkg.Path, &pkg.Name, &pkg.Role, &pkg.Summary,
 		&keyTypesJSON, &keyFuncsJSON, &interfacesJSON,
 		&importsJSON, &importedByJSON,
 		&pkg.FileCount, &pkg.SymbolCount, &pkg.LineCount,
-		&pkg.RepoPath, &pkg.CreatedAt, &pkg.UpdatedAt,
+		&pkg.RepoPath, &createdAtValue, &updatedAtValue,
 	)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan package: %w", err)
 	}
+
+	createdAt, err := parseTimeValue(createdAtValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse created_at: %w", err)
+	}
+	updatedAt, err := parseTimeValue(updatedAtValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse updated_at: %w", err)
+	}
+	pkg.CreatedAt = createdAt
+	pkg.UpdatedAt = updatedAt
 
 	if err := p.unmarshalJSONFields(keyTypesJSON, keyFuncsJSON, interfacesJSON, importsJSON, importedByJSON, pkg); err != nil {
 		return nil, err
@@ -332,7 +333,7 @@ func (p *PackageStore) GetByRole(role string) ([]*Package, error) {
 
 	var packages []*Package
 	for rows.Next() {
-		pkg, err := p.scanPackage(rows)
+		pkg, err := p.scanPackageRow(rows)
 		if err != nil {
 			return nil, err
 		}

@@ -108,7 +108,7 @@ func (e *EdgeStore) GetOutgoing(fromID string, edgeType string) ([]*Edge, error)
 
 	var edges []*Edge
 	for rows.Next() {
-		edge, err := e.scanEdge(rows)
+		edge, err := e.scanEdgeRow(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -139,7 +139,7 @@ func (e *EdgeStore) GetIncoming(toID string, edgeType string) ([]*Edge, error) {
 
 	var edges []*Edge
 	for rows.Next() {
-		edge, err := e.scanEdge(rows)
+		edge, err := e.scanEdgeRow(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -238,40 +238,16 @@ func (e *EdgeStore) GetConnectedComponents(symbolID string, maxDepth int) (map[s
 	return adjacency, nil
 }
 
-// scanEdge scans a row into an Edge
-func (e *EdgeStore) scanEdge(rows *sql.Rows) (*Edge, error) {
-	edge := &Edge{}
-
-	var importPath sql.NullString
-
-	err := rows.Scan(
-		&edge.FromID, &edge.FromID, &edge.ToID, &edge.EdgeType,
-		&edge.Weight, &importPath, &edge.CreatedAt,
-	)
-
-	// Note: there seems to be a duplicate scan for FromID above, let me fix that
-	// Actually the query starts with id, so we need to skip it or handle it
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan edge: %w", err)
-	}
-
-	if importPath.Valid {
-		edge.ImportPath = importPath.String
-	}
-
-	return edge, nil
-}
-
-// scanEdgeFixed properly scans with the id column
-func (e *EdgeStore) scanEdgeFixed(rows *sql.Rows) (*Edge, error) {
+// scanEdgeRow scans a row into an Edge
+func (e *EdgeStore) scanEdgeRow(scanner rowScanner) (*Edge, error) {
 	edge := &Edge{}
 	var id int64
 	var importPath sql.NullString
+	var createdAtValue any
 
-	err := rows.Scan(
+	err := scanner.Scan(
 		&id, &edge.FromID, &edge.ToID, &edge.EdgeType,
-		&edge.Weight, &importPath, &edge.CreatedAt,
+		&edge.Weight, &importPath, &createdAtValue,
 	)
 
 	if err != nil {
@@ -281,6 +257,12 @@ func (e *EdgeStore) scanEdgeFixed(rows *sql.Rows) (*Edge, error) {
 	if importPath.Valid {
 		edge.ImportPath = importPath.String
 	}
+
+	createdAt, err := parseTimeValue(createdAtValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse created_at: %w", err)
+	}
+	edge.CreatedAt = createdAt
 
 	return edge, nil
 }

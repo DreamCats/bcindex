@@ -126,34 +126,14 @@ func (s *SymbolStore) Get(id string) (*Symbol, error) {
 		FROM symbols WHERE id = ?
 	`
 
-	sym := &Symbol{}
-	var tokensJSON, typeDetailsJSON string
-	var exported int
-
-	err := s.db.sqlDB.QueryRow(query, id).Scan(
-		&sym.ID, &sym.RepoPath, &sym.Kind, &sym.PackagePath, &sym.PackageName,
-		&sym.Name, &sym.Signature, &sym.FilePath, &sym.LineStart, &sym.LineEnd,
-		&sym.DocComment, &exported, &sym.SemanticText,
-		&tokensJSON, &typeDetailsJSON, &sym.CreatedAt, &sym.UpdatedAt,
-	)
+	row := s.db.sqlDB.QueryRow(query, id)
+	sym, err := s.scanSymbolRow(row)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get symbol: %w", err)
-	}
-
-	sym.Exported = intToBool(exported)
-
-	if err := json.Unmarshal([]byte(tokensJSON), &sym.Tokens); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal tokens: %w", err)
-	}
-
-	if typeDetailsJSON != "" {
-		if err := json.Unmarshal([]byte(typeDetailsJSON), &sym.TypeDetails); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal type_details: %w", err)
-		}
 	}
 
 	return sym, nil
@@ -182,7 +162,7 @@ func (s *SymbolStore) GetByPackage(pkgPath string) ([]*Symbol, error) {
 
 	var symbols []*Symbol
 	for rows.Next() {
-		sym, err := s.scanSymbol(rows)
+		sym, err := s.scanSymbolRow(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -210,7 +190,7 @@ func (s *SymbolStore) GetByRepo(repoPath string) ([]*Symbol, error) {
 
 	var symbols []*Symbol
 	for rows.Next() {
-		sym, err := s.scanSymbol(rows)
+		sym, err := s.scanSymbolRow(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -311,7 +291,7 @@ func (s *SymbolStore) SearchFTS(query string, limit int) ([]*Symbol, error) {
 
 	var symbols []*Symbol
 	for rows.Next() {
-		sym, err := s.scanSymbol(rows)
+		sym, err := s.scanSymbolRow(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -321,17 +301,19 @@ func (s *SymbolStore) SearchFTS(query string, limit int) ([]*Symbol, error) {
 	return symbols, nil
 }
 
-// scanSymbol scans a row into a Symbol
-func (s *SymbolStore) scanSymbol(rows *sql.Rows) (*Symbol, error) {
+// scanSymbolRow scans a row into a Symbol
+func (s *SymbolStore) scanSymbolRow(scanner rowScanner) (*Symbol, error) {
 	sym := &Symbol{}
 	var tokensJSON, typeDetailsJSON string
 	var exported int
+	var createdAtValue any
+	var updatedAtValue any
 
-	err := rows.Scan(
+	err := scanner.Scan(
 		&sym.ID, &sym.RepoPath, &sym.Kind, &sym.PackagePath, &sym.PackageName,
 		&sym.Name, &sym.Signature, &sym.FilePath, &sym.LineStart, &sym.LineEnd,
 		&sym.DocComment, &exported, &sym.SemanticText,
-		&tokensJSON, &typeDetailsJSON, &sym.CreatedAt, &sym.UpdatedAt,
+		&tokensJSON, &typeDetailsJSON, &createdAtValue, &updatedAtValue,
 	)
 
 	if err != nil {
@@ -339,6 +321,16 @@ func (s *SymbolStore) scanSymbol(rows *sql.Rows) (*Symbol, error) {
 	}
 
 	sym.Exported = intToBool(exported)
+	createdAt, err := parseTimeValue(createdAtValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse created_at: %w", err)
+	}
+	updatedAt, err := parseTimeValue(updatedAtValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse updated_at: %w", err)
+	}
+	sym.CreatedAt = createdAt
+	sym.UpdatedAt = updatedAt
 
 	if tokensJSON != "" {
 		if err := json.Unmarshal([]byte(tokensJSON), &sym.Tokens); err != nil {

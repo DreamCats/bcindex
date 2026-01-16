@@ -11,12 +11,12 @@ import (
 
 // HybridRetriever provides hybrid search combining vector and keyword search
 type HybridRetriever struct {
-	vectorStore    *store.VectorStore
-	symbolStore    *store.SymbolStore
-	packageStore   *store.PackageStore
-	edgeStore      *store.EdgeStore
-	embedService   *embedding.Service
-	graphRanker    *GraphRanker
+	vectorStore     *store.VectorStore
+	symbolStore     *store.SymbolStore
+	packageStore    *store.PackageStore
+	edgeStore       *store.EdgeStore
+	embedService    *embedding.Service
+	graphRanker     *GraphRanker
 	evidenceBuilder *EvidenceBuilder
 }
 
@@ -44,15 +44,15 @@ func NewHybridRetriever(
 
 // SearchOptions configures search behavior
 type SearchOptions struct {
-	TopK              int     // Number of results to return
-	VectorWeight      float32 // Weight for vector similarity (0-1)
-	KeywordWeight     float32 // Weight for keyword search (0-1)
-	GraphWeight       float32 // Weight for graph-based ranking (0-1)
-	ExportedOnly      bool    // Only return exported symbols
-	Kinds             []string // Filter by symbol kinds
-	PackagePath       string   // Filter by package path
-	IncludePackages   bool    // Also return package-level results
-	EnableGraphRank   bool    // Enable graph-based ranking
+	TopK            int      // Number of results to return
+	VectorWeight    float32  // Weight for vector similarity (0-1)
+	KeywordWeight   float32  // Weight for keyword search (0-1)
+	GraphWeight     float32  // Weight for graph-based ranking (0-1)
+	ExportedOnly    bool     // Only return exported symbols
+	Kinds           []string // Filter by symbol kinds
+	PackagePath     string   // Filter by package path
+	IncludePackages bool     // Also return package-level results
+	EnableGraphRank bool     // Enable graph-based ranking
 }
 
 // DefaultSearchOptions returns default search options
@@ -147,6 +147,9 @@ func (h *HybridRetriever) Search(ctx context.Context, query string, opts SearchO
 
 	// Add vector results
 	for symbolID, result := range vectorResults {
+		if result == nil || result.symbol == nil {
+			continue
+		}
 		combinedScores[symbolID] = &combinedResult{
 			symbol:       result.symbol,
 			vectorScore:  result.score,
@@ -156,6 +159,9 @@ func (h *HybridRetriever) Search(ctx context.Context, query string, opts SearchO
 
 	// Add keyword results and combine
 	for symbolID, result := range keywordResults {
+		if result == nil || result.symbol == nil {
+			continue
+		}
 		if existing, ok := combinedScores[symbolID]; ok {
 			existing.keywordScore = result.score
 		} else {
