@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -129,6 +130,10 @@ func main() {
 	subcommand := args[subcommandIndex]
 	subcommandArgs := args[subcommandIndex+1:]
 
+	if err := setupLogging(subcommand, repoRoot); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to initialize log file: %v\n", err)
+	}
+
 	switch subcommand {
 	case "index":
 		handleIndex(cfg, subcommandArgs)
@@ -143,6 +148,34 @@ func main() {
 		printUsage()
 		os.Exit(1)
 	}
+}
+
+func setupLogging(subcommand string, repoRoot string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	logDir := filepath.Join(homeDir, ".bcindex", "logs")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return err
+	}
+
+	repoName := sanitizeRepoName(filepath.Base(repoRoot))
+	hash := sha1.Sum([]byte(repoRoot))
+	suffix := hex.EncodeToString(hash[:])[:8]
+	timestamp := time.Now().Format("20060102-150405")
+	filename := fmt.Sprintf("bcindex-%s-%s-%s-%s.log", subcommand, repoName, timestamp, suffix)
+	logPath := filepath.Join(logDir, filename)
+
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+
+	log.SetOutput(io.MultiWriter(os.Stderr, logFile))
+	log.Printf("Log file: %s", logPath)
+	return nil
 }
 
 func printUsage() {
