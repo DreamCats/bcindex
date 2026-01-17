@@ -2,7 +2,7 @@ package mcpserver
 
 import "github.com/DreamCats/bcindex/internal/store"
 
-// SearchInput defines inputs for the bcindex_search MCP tool.
+// SearchInput defines inputs for the bcindex_locate MCP tool.
 type SearchInput struct {
 	Query             string `json:"query" jsonschema:"search query (natural language or keywords)"`
 	Repo              string `json:"repo,omitempty" jsonschema:"repository root path (optional)"`
@@ -35,14 +35,14 @@ type SearchResultItem struct {
 	Reasons      []string     `json:"reasons,omitempty"`
 }
 
-// SearchOutput is the output for bcindex_search.
+// SearchOutput is the output for bcindex_locate.
 type SearchOutput struct {
 	Query   string             `json:"query"`
 	Count   int                `json:"count"`
 	Results []SearchResultItem `json:"results"`
 }
 
-// EvidenceInput defines inputs for the bcindex_evidence MCP tool.
+// EvidenceInput defines inputs for the bcindex_context MCP tool.
 type EvidenceInput struct {
 	Query             string `json:"query" jsonschema:"search query for evidence pack"`
 	Repo              string `json:"repo,omitempty" jsonschema:"repository root path (optional)"`

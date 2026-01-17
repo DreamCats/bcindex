@@ -37,13 +37,13 @@ func (s *Server) Run(ctx context.Context) error {
 	}, nil)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "bcindex_search",
-		Description: "Search Go code using natural language or keywords.",
+		Name:        "bcindex_locate",
+		Description: "Locate symbols, files, or APIs (quick lookup for definitions/usages).",
 	}, s.searchTool)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "bcindex_evidence",
-		Description: "Return an LLM-friendly evidence pack for a query.",
+		Name:        "bcindex_context",
+		Description: "Provide richer context (packages, symbols, snippets) for implementation/flow questions.",
 	}, s.evidenceTool)
 
 	return server.Run(ctx, &mcp.StdioTransport{})

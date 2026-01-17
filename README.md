@@ -205,8 +205,8 @@ bcindex mcp
 ```
 
 该模式提供两个工具：
-- `bcindex_search`：语义/关键词混合搜索
-- `bcindex_evidence`：生成 LLM 证据包（JSON）
+- `bcindex_locate`：快速定位符号/文件/定义（适合“在哪里/是什么”）
+- `bcindex_context`：上下文证据包（适合“怎么实现/调用链/模块关系”）
 
 客户端配置（stdio）：
 - 在客户端的 MCP 设置中新增一个 stdio server，命令为 `bcindex`，参数为 `mcp`
