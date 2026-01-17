@@ -20,7 +20,7 @@ import (
 	"github.com/DreamCats/bcindex/internal/retrieval"
 )
 
-var version = "1.0.2"
+var version = "1.0.3"
 
 func main() {
 	if len(os.Args) < 2 {

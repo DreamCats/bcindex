@@ -252,7 +252,7 @@ func (e *SymbolExtractor) extractTypeSpec(spec *ast.TypeSpec, decl *ast.GenDecl,
 
 	// Extract methods if attached to interface
 	if iface, ok := spec.Type.(*ast.InterfaceType); ok {
-		sym.Children = e.extractInterfaceMethods(iface, filePath, ctx)
+		sym.Children = e.extractInterfaceMethods(iface, spec.Name.Name, filePath, ctx)
 	}
 
 	// Extract struct fields
@@ -337,7 +337,7 @@ func (e *SymbolExtractor) extractValueSpec(name *ast.Ident, spec *ast.ValueSpec,
 }
 
 // extractInterfaceMethods extracts method symbols from an interface
-func (e *SymbolExtractor) extractInterfaceMethods(iface *ast.InterfaceType, filePath string, ctx *fileContext) []string {
+func (e *SymbolExtractor) extractInterfaceMethods(iface *ast.InterfaceType, interfaceName string, filePath string, ctx *fileContext) []string {
 	var children []string
 
 	for _, method := range iface.Methods.List {
@@ -345,7 +345,7 @@ func (e *SymbolExtractor) extractInterfaceMethods(iface *ast.InterfaceType, file
 		case *ast.FuncType:
 			for _, name := range method.Names {
 				sym := &ExtractedSymbol{
-					ID:          e.symbolID(filePath, "interface-method", name.Name),
+					ID:          e.symbolID(filePath, "interface-method", fmt.Sprintf("%s.%s", interfaceName, name.Name)),
 					Name:        name.Name,
 					Kind:        "method",
 					PackagePath: e.pkg.PkgPath,
