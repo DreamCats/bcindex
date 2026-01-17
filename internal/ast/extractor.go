@@ -492,6 +492,14 @@ func (e *SymbolExtractor) typeToString(typ ast.Expr) string {
 		return t.Name
 	case *ast.SelectorExpr:
 		return fmt.Sprintf("%s.%s", e.typeToString(t.X), t.Sel.Name)
+	case *ast.IndexExpr:
+		return fmt.Sprintf("%s[%s]", e.typeToString(t.X), e.typeToString(t.Index))
+	case *ast.IndexListExpr:
+		parts := make([]string, 0, len(t.Indices))
+		for _, idx := range t.Indices {
+			parts = append(parts, e.typeToString(idx))
+		}
+		return fmt.Sprintf("%s[%s]", e.typeToString(t.X), strings.Join(parts, ", "))
 	case *ast.StarExpr:
 		return fmt.Sprintf("*%s", e.typeToString(t.X))
 	case *ast.ArrayType:
