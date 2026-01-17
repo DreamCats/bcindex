@@ -17,6 +17,7 @@ import (
 
 	"github.com/DreamCats/bcindex/internal/config"
 	"github.com/DreamCats/bcindex/internal/indexer"
+	"github.com/DreamCats/bcindex/internal/mcpserver"
 	"github.com/DreamCats/bcindex/internal/retrieval"
 )
 
@@ -51,6 +52,7 @@ func main() {
 		"search":   true,
 		"evidence": true,
 		"stats":    true,
+		"mcp":      true,
 	}
 
 	subcommandIndex := -1
@@ -161,6 +163,8 @@ func main() {
 		handleEvidence(cfg, subcommandArgs)
 	case "stats":
 		handleStats(cfg, subcommandArgs)
+	case "mcp":
+		handleMCP(cfg, repoRoot, subcommandArgs)
 	default:
 		fmt.Printf("Unknown subcommand: %s\n\n", subcommand)
 		printUsage()
@@ -230,6 +234,9 @@ COMMANDS:
     stats
         Show index statistics
 
+    mcp
+        Run MCP stdio server (tools: bcindex_search, bcindex_evidence)
+
 EXAMPLES:
     # Index current directory
     bcindex index
@@ -248,6 +255,9 @@ EXAMPLES:
 
     # Show statistics
     bcindex stats
+
+    # Run MCP server over stdio
+    bcindex mcp
 
 For detailed help on each command, use:
     bcindex <command> -help
@@ -753,6 +763,31 @@ EXAMPLES:
 		fmt.Printf("Symbols:    %6d\n", symbolCount)
 		fmt.Printf("Edges:      %6d\n", edgeCount)
 		fmt.Printf("Embeddings: %6d\n", vectorCount)
+	}
+}
+
+// handleMCP implements the MCP stdio server subcommand
+func handleMCP(cfg *config.Config, repoRoot string, args []string) {
+	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
+
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, `USAGE:
+    bcindex mcp
+
+DESCRIPTION:
+    Run an MCP stdio server exposing:
+      - bcindex_search
+      - bcindex_evidence
+`)
+	}
+
+	if err := fs.Parse(args); err != nil {
+		log.Fatalf("Failed to parse arguments: %v", err)
+	}
+
+	server := mcpserver.New(cfg, repoRoot, version)
+	if err := server.Run(context.Background()); err != nil {
+		log.Fatalf("MCP server failed: %v", err)
 	}
 }
 

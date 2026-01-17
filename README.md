@@ -196,6 +196,49 @@ bcindex evidence "database migration" \
   -max-lines 500
 ```
 
+### 4. MCP (stdio) 集成
+
+在需要与支持 MCP 的客户端集成时，可启动 stdio server：
+
+```bash
+bcindex mcp
+```
+
+该模式提供两个工具：
+- `bcindex_search`：语义/关键词混合搜索
+- `bcindex_evidence`：生成 LLM 证据包（JSON）
+
+客户端配置（stdio）：
+- 在客户端的 MCP 设置中新增一个 stdio server，命令为 `bcindex`，参数为 `mcp`
+- 注意全局参数必须放在子命令前面（如 `-repo`、`-config`）
+
+示例（JSON 形式，具体字段以客户端为准）：
+```json
+{
+  "name": "bcindex",
+  "command": "bcindex",
+  "args": ["mcp"]
+}
+```
+
+固定仓库路径示例：
+```json
+{
+  "name": "bcindex",
+  "command": "bcindex",
+  "args": ["-repo", "/path/to/your/repo", "mcp"]
+}
+```
+
+示例输入（MCP tool arguments）：
+```json
+{
+  "query": "如何生成证据包",
+  "top_k": 10,
+  "include_unexported": false
+}
+```
+
 **证据包输出示例**:
 ```json
 {
