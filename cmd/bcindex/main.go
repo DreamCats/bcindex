@@ -102,6 +102,22 @@ func main() {
 	cfg, err := loadConfig(configPath)
 	if err != nil {
 		if config.IsConfigNotFound(err) {
+			if subcommand := args[subcommandIndex]; subcommand == "index" {
+				if notFoundErr, ok := err.(*config.ConfigNotFoundError); ok {
+					created, createErr := config.WriteDefaultTemplate(notFoundErr.RequestedPath)
+					if createErr != nil {
+						fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
+						fmt.Fprintf(os.Stderr, "Also failed to create default config at %s: %v\n\n", notFoundErr.RequestedPath, createErr)
+						printConfigExample()
+						os.Exit(1)
+					}
+					if created {
+						fmt.Fprintf(os.Stderr, "Created default config at %s\n", notFoundErr.RequestedPath)
+					}
+					fmt.Fprintln(os.Stderr, "Please update embedding.api_key in the config file and rerun `bcindex index`.")
+					os.Exit(1)
+				}
+			}
 			fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
 			printConfigExample()
 			os.Exit(1)

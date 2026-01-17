@@ -311,3 +311,52 @@ func (c *Config) SaveToFile(path string) error {
 
 	return nil
 }
+
+const defaultConfigTemplate = `# BCIndex Configuration
+#
+# Copy and edit this file for your environment.
+# Default location: $HOME/.bcindex/config/bcindex.yaml
+
+embedding:
+  # Provider: "volcengine" or "openai"
+  provider: volcengine
+
+  # VolcEngine configuration
+  api_key: your-volcengine-api-key
+  endpoint: https://ark.cn-beijing.volces.com/api/v3
+  model: doubao-embedding-vision-250615
+  dimensions: 2048
+  batch_size: 10
+  encoding_format: float
+
+  # OpenAI configuration (alternative)
+  # provider: openai
+  # openai_api_key: your-openai-api-key
+  # openai_model: text-embedding-3-small
+  # dimensions: 1536
+  # batch_size: 100
+  # encoding_format: float
+`
+
+// WriteDefaultTemplate creates a default configuration file if it does not exist.
+// It returns true if a file was created, false if it already existed.
+func WriteDefaultTemplate(path string) (bool, error) {
+	if path == "" {
+		return false, fmt.Errorf("config path is empty")
+	}
+	if _, err := os.Stat(path); err == nil {
+		return false, nil
+	} else if !os.IsNotExist(err) {
+		return false, fmt.Errorf("failed to stat config file: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return false, fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	if err := os.WriteFile(path, []byte(defaultConfigTemplate), 0644); err != nil {
+		return false, fmt.Errorf("failed to write config template: %w", err)
+	}
+
+	return true, nil
+}
