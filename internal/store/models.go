@@ -12,7 +12,7 @@ type Symbol struct {
 	RepoPath string `json:"repo_path"`
 
 	// Symbol classification
-	Kind string `json:"kind"` // package | file | interface | struct | func | method | const | var | field
+	Kind string `json:"kind"` // package | file | interface | struct | type | func | method | const | var | field
 
 	// Package information
 	PackagePath string `json:"package_path"` // Full package path (e.g., github.com/user/repo/pkg)
@@ -218,6 +218,7 @@ const (
 	KindFile      = "file"
 	KindInterface = "interface"
 	KindStruct    = "struct"
+	KindType      = "type"
 	KindFunc      = "func"
 	KindMethod    = "method"
 	KindConst     = "const"

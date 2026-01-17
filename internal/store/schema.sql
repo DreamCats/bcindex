@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 CREATE TABLE IF NOT EXISTS symbols (
     id TEXT PRIMARY KEY,
     repo_path TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK(kind IN ('package', 'file', 'interface', 'struct', 'func', 'method', 'const', 'var', 'field')),
+    kind TEXT NOT NULL CHECK(kind IN ('package', 'file', 'interface', 'struct', 'type', 'func', 'method', 'const', 'var', 'field')),
     package_path TEXT NOT NULL,
     package_name TEXT NOT NULL,
     name TEXT NOT NULL,

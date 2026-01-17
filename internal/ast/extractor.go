@@ -23,7 +23,7 @@ type ExtractedSymbol struct {
 	// Basic identification
 	ID          string   // Unique identifier
 	Name        string   // Symbol name
-	Kind        string   // package, file, struct, interface, func, method, const, var
+	Kind        string   // package, file, struct, interface, type, func, method, const, var
 	PackagePath string   // Full package path
 	PackageName string   // Simple package name
 
