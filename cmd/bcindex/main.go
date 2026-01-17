@@ -130,8 +130,10 @@ func main() {
 	subcommand := args[subcommandIndex]
 	subcommandArgs := args[subcommandIndex+1:]
 
-	if err := setupLogging(subcommand, repoRoot); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to initialize log file: %v\n", err)
+	if subcommand != "evidence" {
+		if err := setupLogging(subcommand, repoRoot); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to initialize log file: %v\n", err)
+		}
 	}
 
 	switch subcommand {
