@@ -47,7 +47,7 @@ func NewGenerator(cfg *config.DocGenConfig) (*Generator, error) {
 	return &Generator{
 		cfg: cfg,
 		client: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: 120 * time.Second,
 		},
 		apiKey:   apiKey,
 		endpoint: endpoint,
