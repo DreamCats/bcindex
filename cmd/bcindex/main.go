@@ -25,6 +25,8 @@ import (
 
 var version = "1.0.3"
 
+// main 启动 bcindex 命令行工具，解析参数并执行对应子命令。
+// 若参数无效或缺少子命令则打印用法并退出。
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -177,6 +179,8 @@ func main() {
 	}
 }
 
+// setupLogging 根据子命令与仓库根目录初始化日志配置。
+// 返回设置失败时的 error。
 func setupLogging(subcommand string, repoRoot string) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -205,6 +209,8 @@ func setupLogging(subcommand string, repoRoot string) error {
 	return nil
 }
 
+// printUsage 向 stderr 输出 bcindex 的用法与可用子命令列表。
+// 无返回值，直接退出程序。
 func printUsage() {
 	fmt.Fprintf(os.Stderr, `bcindex - Semantic Code Search for Go Projects
 
@@ -275,6 +281,8 @@ For detailed help on each command, use:
 `, version)
 }
 
+// loadConfig 从指定路径读取并解析 YAML 配置文件。
+// 返回填充后的 *config.Config 或解析错误。
 func loadConfig(configPath string) (*config.Config, error) {
 	if configPath != "" {
 		return config.LoadFromFile(configPath)
@@ -308,6 +316,8 @@ func resolveRepoRoot(repoPath string) (string, error) {
 	return absPath, nil
 }
 
+// gitTopLevel 返回给定目录所在 Git 仓库的根路径。
+// 若未找到 .git 则返回空字符串。
 func gitTopLevel(dir string) string {
 	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
 	cmd.Dir = dir
@@ -322,6 +332,8 @@ func gitTopLevel(dir string) string {
 	return root
 }
 
+// defaultDBPath 基于仓库根目录生成默认的 BoltDB 数据库路径。
+// 返回路径字符串或构造失败时的 error。
 func defaultDBPath(repoRoot string) (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -335,6 +347,8 @@ func defaultDBPath(repoRoot string) (string, error) {
 	return filepath.Join(dataDir, filename), nil
 }
 
+// sanitizeRepoName 将仓库名称中的危险字符替换为安全下划线。
+// 用于生成文件系统友好的标识符。
 func sanitizeRepoName(name string) string {
 	if name == "" || name == "." || name == string(filepath.Separator) {
 		return "repo"
@@ -354,6 +368,8 @@ func sanitizeRepoName(name string) string {
 	return b.String()
 }
 
+// printConfigExample 向 stdout 打印一份完整的 YAML 配置示例。
+// 供用户快速创建自定义配置文件。
 func printConfigExample() {
 	homeDir, _ := os.UserHomeDir()
 	configPath := filepath.Join(homeDir, ".bcindex", "config", "bcindex.yaml")
@@ -1055,6 +1071,12 @@ NOTES:
 				results: results,
 				err:     err,
 			})
+			// Print progress immediately
+			if err != nil {
+				fmt.Printf("  [%d-%d] Failed: %v\n", start, end, err)
+			} else {
+				fmt.Printf("  [%d-%d] Generated %d/%d\n", start, end-1, end, len(symbols))
+			}
 			mu.Unlock()
 		}(batchStart)
 	}
@@ -1073,7 +1095,6 @@ NOTES:
 	var allResults []docgen.GenerateResult
 	for _, br := range batchResults {
 		if br.err != nil {
-			log.Printf("Warning: batch %d-%d failed: %v", br.start, br.end, br.err)
 			// Add error results for this batch
 			for _, sym := range symbols[br.start:br.end] {
 				allResults = append(allResults, docgen.GenerateResult{
@@ -1085,7 +1106,6 @@ NOTES:
 		}
 
 		allResults = append(allResults, br.results...)
-		fmt.Printf("  Generated %d/%d\n", br.end, len(symbols))
 	}
 
 	// Prepare write requests
@@ -1171,10 +1191,14 @@ NOTES:
 // stringList is a flag.Value that collects multiple strings
 type stringList []string
 
+// String 返回 stringList 的逗号连接形式。
+// 满足 fmt.Stringer 与 flag.Value 接口要求。
 func (s *stringList) String() string {
 	return strings.Join(*s, ",")
 }
 
+// Set 将单个字符串追加到 stringList 并返回错误（始终为 nil）。
+// 该方法用于实现 flag.Value 接口，允许多次 -flag 传入。
 func (s *stringList) Set(value string) error {
 	*s = append(*s, value)
 	return nil
