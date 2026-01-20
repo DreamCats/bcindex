@@ -1,0 +1,8 @@
+{
+    "mcpServers": {
+        "bcindex": {
+            "command": "bcindex",
+            "args": ["mcp"]
+        }
+    }
+}
