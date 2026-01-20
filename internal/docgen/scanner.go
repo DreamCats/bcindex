@@ -285,7 +285,10 @@ func (s *Scanner) scanGenDecl(decl *ast.GenDecl, fset *token.FileSet, filePath, 
 		switch spec := spec.(type) {
 		case *ast.TypeSpec:
 			// Check for type declarations (struct, interface, type alias)
-			if spec.Doc == nil || len(spec.Doc.List) == 0 {
+			// A type can have doc on spec.Doc or decl.Doc
+			hasDoc := (spec.Doc != nil && len(spec.Doc.List) > 0) ||
+				(decl.Doc != nil && len(decl.Doc.List) > 0)
+			if !hasDoc {
 				result := s.scanTypeSpec(spec, decl, fset, filePath, pkgName)
 				if result != nil {
 					results = append(results, *result)

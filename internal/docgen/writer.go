@@ -244,7 +244,25 @@ func (w *Writer) collectModification(node *ast.File, fset *token.FileSet, lines 
 	case *ast.FuncDecl:
 		hasDoc = d.Doc != nil && len(d.Doc.List) > 0
 	case *ast.GenDecl:
+		// For GenDecl, check both decl.Doc and spec.Doc
+		// decl.Doc applies to the whole declaration group
+		// spec.Doc applies to individual type specs
 		hasDoc = d.Doc != nil && len(d.Doc.List) > 0
+		// Also check each spec's doc
+		if !hasDoc {
+			for _, spec := range d.Specs {
+				if ts, ok := spec.(*ast.TypeSpec); ok {
+					if ts.Doc != nil && len(ts.Doc.List) > 0 {
+						// Check if this spec is at the requested line
+						specLine := fset.Position(ts.Pos()).Line
+						if specLine == req.Line {
+							hasDoc = true
+							break
+						}
+					}
+				}
+			}
+		}
 	}
 
 	if hasDoc && !req.Overwrite {

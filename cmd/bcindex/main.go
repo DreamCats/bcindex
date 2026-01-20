@@ -960,7 +960,7 @@ NOTES:
 	writerOpts = append(writerOpts,
 		docgen.WithDryRun(dryRun),
 		docgen.WithDiff(diff),
-		docgen.WithVerbose(true),
+		docgen.WithVerbose(verbose),
 	)
 
 	fmt.Printf("🔍 Scanning for symbols without documentation...\n\n")
@@ -1154,6 +1154,7 @@ NOTES:
 	successCount := 0
 	errorCount := 0
 	modifiedCount := 0
+	var writeErrors []string
 	for _, r := range results {
 		if r.Success {
 			successCount++
@@ -1162,6 +1163,7 @@ NOTES:
 			}
 		} else {
 			errorCount++
+			writeErrors = append(writeErrors, fmt.Sprintf("  %s:%s - %s", r.File, r.Symbol, r.Error))
 		}
 		if diff && r.Diff != "" {
 			fmt.Printf("\n--- %s:%s ---\n", r.File, r.Symbol)
@@ -1180,6 +1182,20 @@ NOTES:
 	}
 	if errorCount > 0 {
 		fmt.Printf("   Errors:    %d\n", errorCount)
+		// Always show first few errors
+		maxShow := 5
+		if len(writeErrors) > maxShow {
+			fmt.Println("   Error details (first 5):")
+			for _, err := range writeErrors[:maxShow] {
+				fmt.Println(err)
+			}
+			fmt.Printf("   ... and %d more errors\n", len(writeErrors)-maxShow)
+		} else {
+			fmt.Println("   Error details:")
+			for _, err := range writeErrors {
+				fmt.Println(err)
+			}
+		}
 	}
 
 	if dryRun {

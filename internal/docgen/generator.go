@@ -124,7 +124,7 @@ func (g *Generator) GenerateBatch(ctx context.Context, symbols []SymbolInfo) ([]
 		},
 		"temperature": 0.2,
 		"top_p":       0.7,
-		"max_tokens":  4096, // Increased to handle more symbols
+		"max_tokens":  8192, // Handle batches of 10 symbols
 		"stream":      true,  // Enable streaming
 	}
 
