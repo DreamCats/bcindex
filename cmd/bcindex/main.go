@@ -866,13 +866,14 @@ func outputJSON(results []retrieval.SearchResult, query string) {
 func handleDocGen(cfg *config.Config, repoRoot string, args []string) {
 	fs := flag.NewFlagSet("docgen", flag.ExitOnError)
 
-	var dryRun, diff, overwrite bool
+	var dryRun, diff, overwrite, verbose bool
 	var maxPerFile, maxTotal, concurrency int
 	var includeList, excludeList stringList
 
 	fs.BoolVar(&dryRun, "dry-run", false, "Only scan and generate, don't write to files")
 	fs.BoolVar(&diff, "diff", false, "Output unified diff of changes")
 	fs.BoolVar(&overwrite, "overwrite", false, "Overwrite existing documentation")
+	fs.BoolVar(&verbose, "v", false, "Verbose output (show generation errors)")
 	fs.IntVar(&maxPerFile, "max-per-file", 50, "Maximum symbols to process per file")
 	fs.IntVar(&maxTotal, "max", 200, "Maximum total symbols to process")
 	fs.IntVar(&concurrency, "concurrency", 4, "Number of concurrent LLM requests")
@@ -1089,6 +1090,7 @@ NOTES:
 
 	// Prepare write requests
 	var writeRequests []docgen.WriteRequest
+	var generationErrors []string
 	for i, scan := range scanResults {
 		if i >= len(allResults) {
 			break
@@ -1096,7 +1098,7 @@ NOTES:
 		result := allResults[i]
 
 		if result.Error != "" {
-			log.Printf("Warning: failed to generate for %s: %s", scan.SymbolName, result.Error)
+			generationErrors = append(generationErrors, fmt.Sprintf("%s (%s:%d): %s", scan.SymbolName, scan.File, scan.StartLine, result.Error))
 			continue
 		}
 
@@ -1107,6 +1109,13 @@ NOTES:
 			Comment:   result.Comment,
 			Overwrite: overwrite,
 		})
+	}
+
+	// Log generation errors if any
+	if len(generationErrors) > 0 && verbose {
+		for _, err := range generationErrors {
+			log.Printf("Generation error: %s\n", err)
+		}
 	}
 
 	fmt.Printf("\n✅ Generated %d documentation comments\n", len(writeRequests))
@@ -1124,9 +1133,13 @@ NOTES:
 	// Print summary
 	successCount := 0
 	errorCount := 0
+	modifiedCount := 0
 	for _, r := range results {
 		if r.Success {
 			successCount++
+			if r.Modified {
+				modifiedCount++
+			}
 		} else {
 			errorCount++
 		}
@@ -1141,9 +1154,12 @@ NOTES:
 	}
 
 	fmt.Printf("\n📊 Summary:\n")
-	fmt.Printf("   Success: %d\n", successCount)
+	fmt.Printf("   Generated: %d (LLM successfully generated documentation)\n", successCount)
+	if modifiedCount > 0 {
+		fmt.Printf("   Modified:  %d (files would be modified)\n", modifiedCount)
+	}
 	if errorCount > 0 {
-		fmt.Printf("   Errors:  %d\n", errorCount)
+		fmt.Printf("   Errors:    %d\n", errorCount)
 	}
 
 	if dryRun {
