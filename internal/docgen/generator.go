@@ -1,6 +1,7 @@
 package docgen
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -114,7 +115,7 @@ func (g *Generator) GenerateBatch(ctx context.Context, symbols []SymbolInfo) ([]
 		"messages": []map[string]string{
 			{
 				"role":    "system",
-				"content": "You are a Go code documentation expert. Generate concise, clear, and useful doc comments following Go conventions.",
+				"content": "You are a Go documentation expert. Generate concise, clear, and useful doc comments following Go conventions.",
 			},
 			{
 				"role":    "user",
@@ -123,12 +124,12 @@ func (g *Generator) GenerateBatch(ctx context.Context, symbols []SymbolInfo) ([]
 		},
 		"temperature": 0.2,
 		"top_p":       0.7,
-		"max_tokens":  2048,
+		"max_tokens":  4096, // Increased to handle more symbols
+		"stream":      true,  // Enable streaming
 	}
 
 	// Try to use JSON mode if supported
 	reqBody["response_format"] = map[string]string{"type": "json_object"}
-	reqBody["stream"] = false
 	reqBody["thinking"] = map[string]interface{}{"type": "disabled"}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -144,6 +145,7 @@ func (g *Generator) GenerateBatch(ctx context.Context, symbols []SymbolInfo) ([]
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+g.apiKey)
+	httpReq.Header.Set("Accept", "text/event-stream")
 
 	// Send request
 	resp, err := g.client.Do(httpReq)
@@ -152,49 +154,86 @@ func (g *Generator) GenerateBatch(ctx context.Context, symbols []SymbolInfo) ([]
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
 	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response
-	var apiResp struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
+	// Read streaming response
+	var content strings.Builder
+	scanner := bufio.NewScanner(resp.Body)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue // Empty line between SSE chunks
+		}
+
+		// SSE format: data: {...}
+		if strings.HasPrefix(line, "data: ") {
+			line = strings.TrimPrefix(line, "data: ")
+		}
+
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+					Role    string `json:"role"`
+				} `json:"delta"`
+				FinishReason *string `json:"finish_reason"`
+				Index        int `json:"index"`
+			} `json:"choices"`
+		}
+
+		if err := json.Unmarshal([]byte(line), &chunk); err != nil {
+			// Skip invalid JSON lines
+			continue
+		}
+
+		// Check for finish reason
+		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != nil {
+			if *chunk.Choices[0].FinishReason == "stop" {
+				break
+			}
+		}
+
+		// Append content
+		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+			content.WriteString(chunk.Choices[0].Delta.Content)
+		}
 	}
 
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w, body: %s", err, string(body))
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading stream: %w", err)
 	}
 
-	if len(apiResp.Choices) == 0 {
-		return nil, fmt.Errorf("no choices returned from API, body: %s", string(body))
-	}
+	contentStr := content.String()
 
-	content := apiResp.Choices[0].Message.Content
-
-	// Log the content for debugging
-	if content == "" {
-		return nil, fmt.Errorf("empty content from API, body: %s", string(body))
+	// Validate we got content
+	if contentStr == "" {
+		return nil, fmt.Errorf("empty content from streaming response")
 	}
 
 	// Parse the JSON content
 	var batchResp GenerateBatchResponse
-	if err := json.Unmarshal([]byte(content), &batchResp); err != nil {
+	if err := json.Unmarshal([]byte(contentStr), &batchResp); err != nil {
 		// Try to fix common JSON issues
-		fixed, fixErr := fixJSON(content)
+		fixed, fixErr := fixJSON(contentStr)
 		if fixErr != nil {
-			return nil, fmt.Errorf("failed to parse response content as JSON: %w, original content: %s", fixErr, content)
+			return nil, fmt.Errorf("failed to parse response content as JSON: %w, original content: %s", fixErr, contentStr)
 		}
 		if err := json.Unmarshal([]byte(fixed), &batchResp); err != nil {
 			return nil, fmt.Errorf("failed to parse fixed JSON: %w, fixed content: %s", err, fixed)
+		}
+	}
+
+	// Validate we got the expected number of results
+	if len(batchResp.Items) != len(symbols) {
+		// If we got more items than requested, truncate
+		if len(batchResp.Items) > len(symbols) {
+			batchResp.Items = batchResp.Items[:len(symbols)]
+		} else if len(batchResp.Items) == 0 {
+			return nil, fmt.Errorf("no items in response, content: %s", contentStr)
 		}
 	}
 
@@ -203,39 +242,54 @@ func (g *Generator) GenerateBatch(ctx context.Context, symbols []SymbolInfo) ([]
 
 // buildPrompt constructs the prompt for documentation generation
 func (g *Generator) buildPrompt(symbols []SymbolInfo) string {
-	var prompt string
+	var prompt strings.Builder
 
-	prompt += "Generate Go doc comments for the following symbols.\n\n"
-	prompt += "IMPORTANT REQUIREMENTS:\n"
-	prompt += "1. Start each comment with the symbol name (e.g., 'Foo does ...')\n"
-	prompt += "2. Keep it concise: one sentence summary + optional key constraints/errors\n"
-	prompt += "3. Use Chinese for explanation + English for technical terms\n"
-	prompt += "4. Don't include implementation details\n"
-	prompt += "5. Output valid JSON only\n\n"
+	prompt.WriteString("You are a Go documentation expert. Generate doc comments for the following Go symbols.\n\n")
+	prompt.WriteString(fmt.Sprintf("You will generate documentation for %d symbols.\n\n", len(symbols)))
 
-	prompt += `Output format (JSON):
-{
-  "items": [
-    {"id": "symbol-id", "comment": "SymbolName does ...\\nAdditional info if needed."}
-  ]
-}
+	prompt.WriteString("REQUIREMENTS:\n")
+	prompt.WriteString("1. First sentence MUST start with the symbol name (e.g., 'Foo creates...', 'Bar represents...')\n")
+	prompt.WriteString("2. Be concise: one sentence summary + optional key constraints/errors/side effects\n")
+	prompt.WriteString("3. Use Chinese for explanations + English for technical terms\n")
+	prompt.WriteString("4. Focus on WHAT and WHY, not HOW (no implementation details)\n")
+	prompt.WriteString(fmt.Sprintf("5. Return exactly %d items in the JSON response\n\n", len(symbols)))
 
-`
-	prompt += "Symbols to document:\n\n"
+	prompt.WriteString("OUTPUT FORMAT (strict JSON):\n")
+	prompt.WriteString("```json\n")
+	prompt.WriteString("{\n")
+	prompt.WriteString("  \"items\": [\n")
+	prompt.WriteString("    {\"id\": \"<symbol-id>\", \"comment\": \"<doc comment>\"},\n")
+	prompt.WriteString("    ...\n")
+	prompt.WriteString("  ]\n")
+	prompt.WriteString("}\n")
+	prompt.WriteString("```\n\n")
 
-	for _, sym := range symbols {
-		prompt += fmt.Sprintf("--- Symbol %s ---\n", sym.ID)
-		prompt += fmt.Sprintf("Name: %s\n", sym.Name)
-		prompt += fmt.Sprintf("Kind: %s\n", sym.Kind)
-		prompt += fmt.Sprintf("Package: %s\n", sym.Package)
-		prompt += fmt.Sprintf("Signature: %s\n", sym.Signature)
+	prompt.WriteString("GUIDELINES per symbol type:\n")
+	prompt.WriteString("- func/method: '<Name> <verb(s)>... <object/purpose>.\\n<Key constraints, errors, or side effects if any>'\n")
+	prompt.WriteString("- struct: '<Name> represents/holds <role/responsibility>.\\n<Key fields or invariants if important>'\n")
+	prompt.WriteString("- interface: '<Name> defines <contract/behavior>.\\n<Key methods or implementation requirements>'\n")
+	prompt.WriteString("- type: '<Name> is <type alias/definition>.\\n<Purpose or usage context>'\n\n")
+
+	prompt.WriteString("SYMBOLS TO DOCUMENT:\n\n")
+
+	for i, sym := range symbols {
+		prompt.WriteString(fmt.Sprintf("[%d] ID: %s\n", i+1, sym.ID))
+		prompt.WriteString(fmt.Sprintf("    Name: %s\n", sym.Name))
+		prompt.WriteString(fmt.Sprintf("    Kind: %s\n", sym.Kind))
+		prompt.WriteString(fmt.Sprintf("    Package: %s\n", sym.Package))
+		prompt.WriteString(fmt.Sprintf("    Signature: %s\n", sym.Signature))
 		if sym.Receiver != "" {
-			prompt += fmt.Sprintf("Receiver: %s\n", sym.Receiver)
+			prompt.WriteString(fmt.Sprintf("    Receiver: %s\n", sym.Receiver))
 		}
-		prompt += "\n"
+		if sym.FilePath != "" {
+			prompt.WriteString(fmt.Sprintf("    File: %s:%d\n", sym.FilePath, sym.Line))
+		}
+		prompt.WriteString("\n")
 	}
 
-	return prompt
+	prompt.WriteString(fmt.Sprintf("\nGenerate JSON with exactly %d items now:\n", len(symbols)))
+
+	return prompt.String()
 }
 
 // fixJSON attempts to fix common JSON formatting issues

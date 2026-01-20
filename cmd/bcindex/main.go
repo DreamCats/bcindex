@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/DreamCats/bcindex/internal/config"
@@ -1008,22 +1009,72 @@ NOTES:
 		}
 	}
 
-	// Generate documentation in batches
+	// Generate documentation in batches with concurrency
 	const batchSize = 10
-	var allResults []docgen.GenerateResult
+	type batchResult struct {
+		start   int
+		end     int
+		results []docgen.GenerateResult
+		err     error
+	}
+
+	var batchResults []batchResult
+	var mu sync.Mutex
+
+	// Create a semaphore to limit concurrency
+	sem := make(chan struct{}, concurrency)
+
+	var wg sync.WaitGroup
+	var batchIndices []int
 
 	for i := 0; i < len(symbols); i += batchSize {
-		end := i + batchSize
-		if end > len(symbols) {
-			end = len(symbols)
-		}
+		batchIndices = append(batchIndices, i)
+	}
 
-		batch := symbols[i:end]
-		results, err := gen.GenerateBatch(ctx, batch)
-		if err != nil {
-			log.Printf("Warning: batch %d-%d failed: %v", i, end, err)
+	// Process batches concurrently
+	for _, batchStart := range batchIndices {
+		wg.Add(1)
+		go func(start int) {
+			defer wg.Done()
+			sem <- struct{}{}        // Acquire
+			defer func() { <-sem }() // Release
+
+			end := start + batchSize
+			if end > len(symbols) {
+				end = len(symbols)
+			}
+
+			batch := symbols[start:end]
+			results, err := gen.GenerateBatch(ctx, batch)
+
+			mu.Lock()
+			batchResults = append(batchResults, batchResult{
+				start:   start,
+				end:     end,
+				results: results,
+				err:     err,
+			})
+			mu.Unlock()
+		}(batchStart)
+	}
+
+	wg.Wait()
+
+	// Sort batch results by start position and collect all results
+	for i := 0; i < len(batchResults); i++ {
+		for j := i + 1; j < len(batchResults); j++ {
+			if batchResults[i].start > batchResults[j].start {
+				batchResults[i], batchResults[j] = batchResults[j], batchResults[i]
+			}
+		}
+	}
+
+	var allResults []docgen.GenerateResult
+	for _, br := range batchResults {
+		if br.err != nil {
+			log.Printf("Warning: batch %d-%d failed: %v", br.start, br.end, br.err)
 			// Add error results for this batch
-			for _, sym := range batch {
+			for _, sym := range symbols[br.start:br.end] {
 				allResults = append(allResults, docgen.GenerateResult{
 					ID:    sym.ID,
 					Error: "generation failed",
@@ -1032,8 +1083,8 @@ NOTES:
 			continue
 		}
 
-		allResults = append(allResults, results...)
-		fmt.Printf("  Generated %d/%d\n", end, len(symbols))
+		allResults = append(allResults, br.results...)
+		fmt.Printf("  Generated %d/%d\n", br.end, len(symbols))
 	}
 
 	// Prepare write requests
