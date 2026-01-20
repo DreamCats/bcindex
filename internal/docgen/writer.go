@@ -135,51 +135,83 @@ func (w *Writer) writeFile(filePath string, requests []WriteRequest) []WriteResu
 	}
 
 	// Build line to position mapping
-	lines := bytes.Split(content, []byte{'\n'})
+	originalLines := bytes.Split(content, []byte{'\n'})
 
-	// Process each request
+	// Use a pointer to lines so we can modify it
+	lines := originalLines
+
+	// Track all modifications needed
+	type modification struct {
+		insertLine int
+		comment    [][]byte
+		overwrite  bool
+	}
+	var modifications []modification
+
+	// First pass: collect all modifications
 	for _, req := range requests {
-		result := w.processRequest(node, fset, lines, filePath, req)
-		results = append(results, result)
+		result := w.collectModification(node, fset, lines, filePath, req)
+		results = append(results, result.result)
+
+		if result.result.Success && result.result.Modified && !w.dryRun && !w.diff {
+			modifications = append(modifications, modification{
+				insertLine: result.insertLine,
+				comment:    result.commentBytes,
+				overwrite:  req.Overwrite,
+			})
+		}
 	}
 
-	// If we have modifications and not in dry-run/diff mode
-	if !w.dryRun && !w.diff {
-		// Check if any file was modified
-		modified := false
-		for _, r := range results {
-			if r.Modified {
-				modified = true
-				break
+	// Apply all modifications at once (in reverse order to maintain line numbers)
+	if !w.dryRun && !w.diff && len(modifications) > 0 {
+		// Sort modifications by insertLine in descending order
+		for i := 0; i < len(modifications); i++ {
+			for j := i + 1; j < len(modifications); j++ {
+				if modifications[i].insertLine < modifications[j].insertLine {
+					modifications[i], modifications[j] = modifications[j], modifications[i]
+				}
 			}
 		}
 
-		if modified {
-			// Write back the file
-			newContent := bytes.Join(lines, []byte{'\n'})
-			if err := os.WriteFile(filePath, newContent, 0644); err != nil {
-				// Mark all as error
-				for i := range results {
-					if results[i].Success {
-						results[i].Success = false
-						results[i].Error = fmt.Sprintf("failed to write file: %v", err)
-					}
+		// Apply modifications
+		for _, mod := range modifications {
+			if mod.overwrite {
+				// Skip existing comment lines
+				i := mod.insertLine
+				for i < len(lines) && (bytes.HasPrefix(lines[i], []byte("//")) || bytes.HasPrefix(bytes.TrimSpace(lines[i]), []byte("/*"))) {
+					i++
 				}
-				return results
+				lines = append(lines[:mod.insertLine], append(mod.comment, lines[i:]...)...)
+			} else {
+				lines = append(lines[:mod.insertLine+1], append(mod.comment, lines[mod.insertLine+1:]...)...)
 			}
+		}
 
-			// Run gofmt if requested
-			if w.gofmt {
-				// TODO: Run gofmt on the file
+		// Write back the file
+		newContent := bytes.Join(lines, []byte{'\n'})
+		if err := os.WriteFile(filePath, newContent, 0644); err != nil {
+			// Mark all as error
+			for i := range results {
+				if results[i].Success {
+					results[i].Success = false
+					results[i].Error = fmt.Sprintf("failed to write file: %v", err)
+				}
 			}
+			return results
 		}
 	}
 
 	return results
 }
 
-// processRequest processes a single write request
-func (w *Writer) processRequest(node *ast.File, fset *token.FileSet, lines [][]byte, filePath string, req WriteRequest) WriteResult {
+// collectModification collects modification info for a single write request
+type collectResult struct {
+	result       WriteResult
+	insertLine   int
+	commentBytes [][]byte
+}
+
+func (w *Writer) collectModification(node *ast.File, fset *token.FileSet, lines [][]byte, filePath string, req WriteRequest) collectResult {
 	result := WriteResult{
 		File:    filePath,
 		Symbol:  req.Symbol,
@@ -203,7 +235,7 @@ func (w *Writer) processRequest(node *ast.File, fset *token.FileSet, lines [][]b
 
 	if !found {
 		result.Error = fmt.Sprintf("declaration not found at line %d", req.Line)
-		return result
+		return collectResult{result: result}
 	}
 
 	// Check if there's already a doc comment
@@ -217,7 +249,7 @@ func (w *Writer) processRequest(node *ast.File, fset *token.FileSet, lines [][]b
 
 	if hasDoc && !req.Overwrite {
 		result.Error = "symbol already has documentation (use --overwrite to replace)"
-		return result
+		return collectResult{result: result}
 	}
 
 	// Build the comment
@@ -236,7 +268,7 @@ func (w *Writer) processRequest(node *ast.File, fset *token.FileSet, lines [][]b
 	if w.diff {
 		result.Diff = generateDiff(lines, insertLine, commentLines)
 		result.Success = true
-		return result
+		return collectResult{result: result, insertLine: insertLine, commentBytes: commentBytes}
 	}
 
 	// In dry-run mode, just report what would be done
@@ -246,36 +278,12 @@ func (w *Writer) processRequest(node *ast.File, fset *token.FileSet, lines [][]b
 		}
 		result.Success = true
 		result.Modified = false
-		return result
+		return collectResult{result: result, insertLine: insertLine, commentBytes: commentBytes}
 	}
-
-	// Actually modify the lines
-	newLines := make([][]byte, 0, len(lines)+len(commentBytes))
-	newLines = append(newLines, lines[:insertLine+1]...)
-
-	// Check if there's already a comment to replace
-	if hasDoc && req.Overwrite {
-		// Skip existing comment lines
-		i := insertLine + 1
-		for i < len(lines) && (bytes.HasPrefix(lines[i], []byte("//")) || bytes.HasPrefix(bytes.TrimSpace(lines[i]), []byte("/*"))) {
-			i++
-		}
-		newLines = append(newLines, lines[i:]...)
-	} else {
-		newLines = append(newLines, commentBytes...)
-		newLines = append(newLines, lines[insertLine+1:]...)
-	}
-
-	// Update the lines slice (this modifies the original slice)
-	// This is a bit tricky because we can't resize the slice in place
-	// So we copy back to the original
-	copy(lines, newLines)
-	// Truncate if necessary
-	lines = lines[:len(newLines)]
 
 	result.Success = true
 	result.Modified = true
-	return result
+	return collectResult{result: result, insertLine: insertLine, commentBytes: commentBytes}
 }
 
 // formatComment formats a documentation comment

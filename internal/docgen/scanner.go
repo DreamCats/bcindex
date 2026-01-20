@@ -130,11 +130,11 @@ func (s *Scanner) Scan(ctx context.Context) ([]ScanResult, error) {
 			return nil
 		}
 
-		// Check max limit
+		// Check max limit - if already reached, skip this file
 		mu.Lock()
 		if s.maxTotal > 0 && len(results) >= s.maxTotal {
 			mu.Unlock()
-			return fmt.Errorf("reached max total symbols limit")
+			return nil
 		}
 		mu.Unlock()
 

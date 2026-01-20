@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/DreamCats/bcindex/internal/config"
@@ -170,14 +171,19 @@ func (g *Generator) GenerateBatch(ctx context.Context, symbols []SymbolInfo) ([]
 	}
 
 	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+		return nil, fmt.Errorf("failed to parse response: %w, body: %s", err, string(body))
 	}
 
 	if len(apiResp.Choices) == 0 {
-		return nil, fmt.Errorf("no choices returned from API")
+		return nil, fmt.Errorf("no choices returned from API, body: %s", string(body))
 	}
 
 	content := apiResp.Choices[0].Message.Content
+
+	// Log the content for debugging
+	if content == "" {
+		return nil, fmt.Errorf("empty content from API, body: %s", string(body))
+	}
 
 	// Parse the JSON content
 	var batchResp GenerateBatchResponse
@@ -185,10 +191,10 @@ func (g *Generator) GenerateBatch(ctx context.Context, symbols []SymbolInfo) ([]
 		// Try to fix common JSON issues
 		fixed, fixErr := fixJSON(content)
 		if fixErr != nil {
-			return nil, fmt.Errorf("failed to parse response content as JSON: %w", fixErr)
+			return nil, fmt.Errorf("failed to parse response content as JSON: %w, original content: %s", fixErr, content)
 		}
 		if err := json.Unmarshal([]byte(fixed), &batchResp); err != nil {
-			return nil, fmt.Errorf("failed to parse fixed JSON: %w", err)
+			return nil, fmt.Errorf("failed to parse fixed JSON: %w, fixed content: %s", err, fixed)
 		}
 	}
 
@@ -238,16 +244,24 @@ func fixJSON(s string) (string, error) {
 	if len(s) > 7 && s[0:7] == "```json" {
 		end := findJSONEnd(s)
 		if end > 0 {
-			return s[7:end], nil
+			s = s[7:end]
 		}
-	}
-	if len(s) > 3 && s[0:3] == "```" {
+	} else if len(s) > 3 && s[0:3] == "```" {
 		end := findJSONEnd(s)
 		if end > 0 {
-			return s[3:end], nil
+			s = s[3:end]
 		}
 	}
-	return s, nil
+
+	// Fix common escape sequence issues
+	// Replace invalid escape sequences like \  (backslash followed by space) with proper escaping
+	s = strings.ReplaceAll(s, `\\ `, ` `)
+	// Fix double backslashes in strings that should be single
+	s = strings.ReplaceAll(s, `\\\\n`, `\n`)
+	s = strings.ReplaceAll(s, `\\\\t`, `\t`)
+	s = strings.ReplaceAll(s, `\\\"`, `\"`)
+
+	return strings.TrimSpace(s), nil
 }
 
 func findJSONEnd(s string) int {
