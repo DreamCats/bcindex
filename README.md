@@ -311,6 +311,53 @@ Edges:           1523
 Embeddings:      387
 ```
 
+### 5. 生成文档注释 (docgen)
+
+使用 LLM 自动为缺少文档的 Go 代码生成符合 Go Doc 规范的注释。
+
+```bash
+# 预览模式 - 查看将要生成的文档（推荐先运行）
+bcindex docgen --dry-run
+
+# 显示差异
+bcindex docgen --diff
+
+# 限制生成数量
+bcindex docgen --max 50 --max-per-file 10
+
+# 只处理特定路径
+bcindex docgen --include internal/service --include internal/handler
+
+# 排除某些目录
+bcindex docgen --exclude vendor --exclude testdata
+
+# 实际生成文档
+bcindex docgen
+
+# 覆盖已有文档
+bcindex docgen --overwrite
+```
+
+**说明**：
+- 扫描范围为函数、方法、类型（struct/interface），不包括 const/var
+- 生成的注释遵循 Go Doc 规范：
+  - 首句以符号名开头
+  - 一句话摘要 + 可选的关键约束/副作用/错误条件
+  - 中文为主 + 英文技术术语
+- 默认不会覆盖已有文档，需要 `--overwrite` 参数
+
+**配置**：
+需要在配置文件中设置 `docgen.api_key`，也可以复用 `embedding.api_key`：
+
+```yaml
+# DocGen 配置（可选，不配置则使用 embedding.api_key）
+docgen:
+  provider: volcengine
+  api_key: your-docgen-api-key  # 或使用 embedding.api_key
+  endpoint: https://ark.cn-beijing.volces.com/api/v3/chat/completions
+  model: doubao-1-5-pro-32k-250115
+```
+
 ## 📖 命令参考
 
 ### 全局选项
@@ -385,6 +432,27 @@ bcindex stats
 bcindex stats -json
 ```
 
+### bcindex docgen
+
+自动生成 Go 代码的文档注释。
+
+**选项**:
+- `--dry-run`: 预览模式，不实际修改文件
+- `--diff`: 显示差异
+- `--overwrite`: 覆盖已有文档
+- `--max <num>`: 最大总符号数 (默认: 200)
+- `--max-per-file <num>`: 每个文件最大符号数 (默认: 50)
+- `--include <pattern>`: 包含路径（可多次指定）
+- `--exclude <pattern>`: 排除路径（可多次指定）
+
+**示例**:
+```bash
+bcindex docgen --dry-run
+bcindex docgen --diff
+bcindex docgen --max 100 --max-per-file 20
+bcindex docgen --include internal/service --exclude vendor
+```
+
 ## 🏗️ 架构
 
 BCIndex 的设计参考了 [NEW_SOLUTION.md](./reference/NEW_SOLUTION.md) 中的最佳实践：
@@ -441,6 +509,7 @@ RAG Orchestrator
 | **Hybrid Retriever** | `internal/retrieval/hybrid.go` | 混合检索 |
 | **Graph Ranker** | `internal/retrieval/ranking.go` | 图排序 |
 | **Evidence Builder** | `internal/retrieval/evidence.go` | 证据包生成 |
+| **DocGen** | `internal/docgen/` | 文档生成 |
 | **Store** | `internal/store/` | 数据持久化 |
 
 ## 🔧 开发
@@ -457,8 +526,10 @@ bcindex/
 ├── internal/
 │   ├── ast/              # AST 解析和符号抽取
 │   ├── config/           # 配置管理
+│   ├── docgen/           # 文档生成
 │   ├── embedding/        # 向量嵌入服务
 │   ├── indexer/          # 索引器
+│   ├── mcpserver/        # MCP 服务器
 │   ├── retrieval/        # 检索和排序
 │   ├── semantic/         # 语义描述生成
 │   └── store/            # 数据存储

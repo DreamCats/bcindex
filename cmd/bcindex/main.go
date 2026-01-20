@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/DreamCats/bcindex/internal/config"
+	"github.com/DreamCats/bcindex/internal/docgen"
 	"github.com/DreamCats/bcindex/internal/indexer"
 	"github.com/DreamCats/bcindex/internal/mcpserver"
 	"github.com/DreamCats/bcindex/internal/retrieval"
@@ -53,6 +54,7 @@ func main() {
 		"evidence": true,
 		"stats":    true,
 		"mcp":      true,
+		"docgen":   true,
 	}
 
 	subcommandIndex := -1
@@ -165,6 +167,8 @@ func main() {
 		handleStats(cfg, subcommandArgs)
 	case "mcp":
 		handleMCP(cfg, repoRoot, subcommandArgs)
+	case "docgen":
+		handleDocGen(cfg, repoRoot, subcommandArgs)
 	default:
 		fmt.Printf("Unknown subcommand: %s\n\n", subcommand)
 		printUsage()
@@ -237,6 +241,9 @@ COMMANDS:
     mcp
         Run MCP stdio server (tools: bcindex_search, bcindex_evidence)
 
+    docgen
+        Generate documentation for Go code using LLM
+
 EXAMPLES:
     # Index current directory
     bcindex index
@@ -258,6 +265,9 @@ EXAMPLES:
 
     # Run MCP server over stdio
     bcindex mcp
+
+    # Generate documentation (dry run)
+    bcindex docgen --dry-run
 
 For detailed help on each command, use:
     bcindex <command> -help
@@ -849,4 +859,256 @@ func outputJSON(results []retrieval.SearchResult, query string) {
 	}
 
 	fmt.Println(string(jsonData))
+}
+
+// handleDocGen implements the docgen subcommand
+func handleDocGen(cfg *config.Config, repoRoot string, args []string) {
+	fs := flag.NewFlagSet("docgen", flag.ExitOnError)
+
+	var dryRun, diff, overwrite bool
+	var maxPerFile, maxTotal, concurrency int
+	var includeList, excludeList stringList
+
+	fs.BoolVar(&dryRun, "dry-run", false, "Only scan and generate, don't write to files")
+	fs.BoolVar(&diff, "diff", false, "Output unified diff of changes")
+	fs.BoolVar(&overwrite, "overwrite", false, "Overwrite existing documentation")
+	fs.IntVar(&maxPerFile, "max-per-file", 50, "Maximum symbols to process per file")
+	fs.IntVar(&maxTotal, "max", 200, "Maximum total symbols to process")
+	fs.IntVar(&concurrency, "concurrency", 4, "Number of concurrent LLM requests")
+	fs.Var(&includeList, "include", "Include paths (can be specified multiple times)")
+	fs.Var(&excludeList, "exclude", "Exclude paths (can be specified multiple times)")
+
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, `USAGE:
+    bcindex docgen [options]
+
+DESCRIPTION:
+    Generate documentation for Go code using LLM.
+    This command scans for symbols missing documentation and generates
+    appropriate doc comments following Go conventions.
+
+    The generated comments follow these principles:
+    - First sentence starts with the symbol name
+    - Concise: one sentence summary + optional key constraints/errors
+    - Chinese for explanation + English for technical terms
+    - No implementation details
+
+OPTIONS:
+`)
+		fs.PrintDefaults()
+		fmt.Fprintf(os.Stderr, `
+EXAMPLES:
+    # Dry run to see what would be documented
+    bcindex docgen --dry-run
+
+    # Show diff of changes
+    bcindex docgen --diff
+
+    # Generate with limits
+    bcindex docgen --max 100 --max-per-file 20
+
+    # Only include specific paths
+    bcindex docgen --include internal/service --include internal/handler
+
+    # Exclude test and vendor directories
+    bcindex docgen --exclude vendor --exclude testdata
+
+    # Higher concurrency for faster processing
+    bcindex docgen --concurrency 8
+
+NOTES:
+    - Requires docgen.api_key or embedding.api_key in config
+    - Default model: doubao-1-5-pro-32k-250115
+    - Use --dry-run first to preview changes before applying
+`)
+	}
+
+	if err := fs.Parse(args); err != nil {
+		log.Fatalf("Failed to parse arguments: %v", err)
+	}
+
+	// Build scanner options
+	var scannerOpts []docgen.Option
+	scannerOpts = append(scannerOpts,
+		docgen.WithInclude(includeList...),
+		docgen.WithExclude(excludeList...),
+		docgen.WithSkipTests(true),
+		docgen.WithMaxPerFile(maxPerFile),
+		docgen.WithMaxTotal(maxTotal),
+	)
+
+	// Build writer options
+	var writerOpts []docgen.WriterOption
+	writerOpts = append(writerOpts,
+		docgen.WithDryRun(dryRun),
+		docgen.WithDiff(diff),
+		docgen.WithVerbose(true),
+	)
+
+	fmt.Printf("🔍 Scanning for symbols without documentation...\n\n")
+
+	// Scan for symbols needing documentation
+	scanner := docgen.NewScanner(repoRoot, scannerOpts...)
+	ctx := context.Background()
+
+	scanResults, err := scanner.Scan(ctx)
+	if err != nil {
+		log.Fatalf("Scan failed: %v", err)
+	}
+
+	if len(scanResults) == 0 {
+		fmt.Println("✅ No symbols found missing documentation!")
+		return
+	}
+
+	fmt.Printf("Found %d symbols needing documentation:\n", len(scanResults))
+
+	// Group by file
+	byFile := make(map[string][]docgen.ScanResult)
+	for _, r := range scanResults {
+		byFile[r.File] = append(byFile[r.File], r)
+	}
+
+	fileCount := len(byFile)
+	fmt.Printf("  Files: %d\n", fileCount)
+	fmt.Printf("  Symbols: %d\n\n", len(scanResults))
+
+	// Convert scan results to symbol info for LLM
+	symbols := make([]docgen.SymbolInfo, 0, len(scanResults))
+	for _, r := range scanResults {
+		relPath, _ := filepath.Rel(repoRoot, r.File)
+		symbols = append(symbols, docgen.SymbolInfo{
+			ID:        fmt.Sprintf("%s:%d", relPath, r.StartLine),
+			Name:      r.SymbolName,
+			Kind:      r.SymbolKind,
+			Signature: r.Signature,
+			Package:   r.Package,
+			FilePath:  relPath,
+			Line:      r.StartLine,
+			Receiver:  r.Receiver,
+		})
+	}
+
+	// Create generator
+	fmt.Println("🤖 Generating documentation...")
+	gen, err := docgen.NewGenerator(&cfg.DocGen)
+	if err != nil {
+		// Try falling back to embedding config
+		if cfg.Embedding.APIKey != "" {
+			gen, err = docgen.NewGenerator(&config.DocGenConfig{
+				APIKey:   cfg.Embedding.APIKey,
+				Endpoint: cfg.DocGen.Endpoint,
+				Model:    cfg.DocGen.Model,
+			})
+			if err != nil {
+				log.Fatalf("Failed to create generator: %v", err)
+			}
+		} else {
+			log.Fatalf("Failed to create generator: %v (configure docgen.api_key or embedding.api_key)", err)
+		}
+	}
+
+	// Generate documentation in batches
+	const batchSize = 10
+	var allResults []docgen.GenerateResult
+
+	for i := 0; i < len(symbols); i += batchSize {
+		end := i + batchSize
+		if end > len(symbols) {
+			end = len(symbols)
+		}
+
+		batch := symbols[i:end]
+		results, err := gen.GenerateBatch(ctx, batch)
+		if err != nil {
+			log.Printf("Warning: batch %d-%d failed: %v", i, end, err)
+			// Add error results for this batch
+			for _, sym := range batch {
+				allResults = append(allResults, docgen.GenerateResult{
+					ID:    sym.ID,
+					Error: "generation failed",
+				})
+			}
+			continue
+		}
+
+		allResults = append(allResults, results...)
+		fmt.Printf("  Generated %d/%d\n", end, len(symbols))
+	}
+
+	// Prepare write requests
+	var writeRequests []docgen.WriteRequest
+	for i, scan := range scanResults {
+		if i >= len(allResults) {
+			break
+		}
+		result := allResults[i]
+
+		if result.Error != "" {
+			log.Printf("Warning: failed to generate for %s: %s", scan.SymbolName, result.Error)
+			continue
+		}
+
+		writeRequests = append(writeRequests, docgen.WriteRequest{
+			File:      scan.File,
+			Symbol:    scan.SymbolName,
+			Line:      scan.StartLine,
+			Comment:   result.Comment,
+			Overwrite: overwrite,
+		})
+	}
+
+	fmt.Printf("\n✅ Generated %d documentation comments\n", len(writeRequests))
+
+	// Write or show diff
+	writer := docgen.NewWriter(writerOpts...)
+
+	if diff {
+		fmt.Println("\n📝 Diff of changes:")
+		fmt.Println(strings.Repeat("=", 60))
+	}
+
+	results := writer.Write(writeRequests)
+
+	// Print summary
+	successCount := 0
+	errorCount := 0
+	for _, r := range results {
+		if r.Success {
+			successCount++
+		} else {
+			errorCount++
+		}
+		if diff && r.Diff != "" {
+			fmt.Printf("\n--- %s:%s ---\n", r.File, r.Symbol)
+			fmt.Println(r.Diff)
+		}
+	}
+
+	if diff {
+		fmt.Println(strings.Repeat("=", 60))
+	}
+
+	fmt.Printf("\n📊 Summary:\n")
+	fmt.Printf("   Success: %d\n", successCount)
+	if errorCount > 0 {
+		fmt.Printf("   Errors:  %d\n", errorCount)
+	}
+
+	if dryRun {
+		fmt.Println("\n⚠️  Dry run mode - no files were modified")
+		fmt.Println("    Run without --dry-run to apply changes")
+	}
+}
+
+// stringList is a flag.Value that collects multiple strings
+type stringList []string
+
+func (s *stringList) String() string {
+	return strings.Join(*s, ",")
+}
+
+func (s *stringList) Set(value string) error {
+	*s = append(*s, value)
+	return nil
 }

@@ -19,6 +19,7 @@ type Config struct {
 	Indexer  IndexerConfig    `yaml:"indexer,omitempty"`
 	Search   SearchConfig     `yaml:"search,omitempty"`
 	Evidence EvidenceConfig   `yaml:"evidence,omitempty"`
+	DocGen   DocGenConfig     `yaml:"docgen,omitempty"`
 }
 
 // RepoConfig holds repository-specific configuration (deprecated)
@@ -74,6 +75,14 @@ type EvidenceConfig struct {
 	MaxSymbols  int `yaml:"max_symbols,omitempty"`  // Maximum symbols in evidence pack
 	MaxSnippets int `yaml:"max_snippets,omitempty"` // Maximum code snippets
 	MaxLines    int `yaml:"max_lines,omitempty"`    // Maximum total lines across snippets
+}
+
+// DocGenConfig holds docgen (documentation generator) configuration
+type DocGenConfig struct {
+	Provider string `yaml:"provider,omitempty"` // "volcengine" | "openai"
+	APIKey   string `yaml:"api_key,omitempty"`
+	Endpoint string `yaml:"endpoint,omitempty"`
+	Model    string `yaml:"model,omitempty"`
 }
 
 // Load loads configuration from the default config file
@@ -248,6 +257,17 @@ func (c *Config) applyDefaults() error {
 	}
 	if c.Evidence.MaxLines == 0 {
 		c.Evidence.MaxLines = 200
+	}
+
+	// Set default docgen options
+	if c.DocGen.Provider == "" {
+		c.DocGen.Provider = "volcengine"
+	}
+	if c.DocGen.Endpoint == "" {
+		c.DocGen.Endpoint = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+	}
+	if c.DocGen.Model == "" {
+		c.DocGen.Model = "doubao-1-5-pro-32k-250115"
 	}
 
 	return nil
