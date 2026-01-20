@@ -204,18 +204,22 @@ func (idx *Indexer) findChangedPackages(repoPath string, dbRepoPath string, sinc
 		return nil, fmt.Errorf("failed to load indexed file symbols: %w", err)
 	}
 
+	// fileSymbols contain relative paths (e.g., "internal/pkg/file.go")
+	// We need to check if these files exist by converting to absolute paths
 	fileToPackage := make(map[string]string, len(fileSymbols))
 	for _, fileSymbol := range fileSymbols {
 		fileToPackage[fileSymbol.FilePath] = fileSymbol.PackagePath
 	}
 
-	for filePath, pkgPath := range fileToPackage {
-		if _, err := os.Stat(filePath); err != nil {
+	// Check if indexed files still exist
+	for relFilePath, pkgPath := range fileToPackage {
+		absFilePath := filepath.Join(repoPath, relFilePath)
+		if _, err := os.Stat(absFilePath); err != nil {
 			if os.IsNotExist(err) {
 				changed[pkgPath] = true
 				continue
 			}
-			return nil, fmt.Errorf("failed to stat file %s: %w", filePath, err)
+			return nil, fmt.Errorf("failed to stat file %s: %w", absFilePath, err)
 		}
 	}
 
@@ -242,11 +246,21 @@ func (idx *Indexer) findChangedPackages(repoPath string, dbRepoPath string, sinc
 		}
 
 		if info.ModTime().After(since) {
-			if pkgPath, ok := fileToPackage[path]; ok && pkgPath != "" {
+			// Convert absolute path to relative for lookup
+			relPath, err := filepath.Rel(repoPath, path)
+			if err != nil {
+				log.Printf("Warning: failed to make relative path for %s: %v", path, err)
+				return nil
+			}
+			relPath = filepath.ToSlash(relPath)
+
+			// Check if we already know this file's package
+			if pkgPath, ok := fileToPackage[relPath]; ok && pkgPath != "" {
 				changed[pkgPath] = true
 				return nil
 			}
 
+			// New file or changed file, resolve its package
 			pkgPath, err := idx.resolvePackagePath(repoPath, path)
 			if err != nil {
 				log.Printf("Warning: failed to resolve package for %s: %v", path, err)

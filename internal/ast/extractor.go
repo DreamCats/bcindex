@@ -70,8 +70,10 @@ func NewSymbolExtractor(pkg *packages.Package, repoPath string) *SymbolExtractor
 func (e *SymbolExtractor) Extract() ([]*ExtractedSymbol, error) {
 	// Build file context for each syntax file
 	for _, astFile := range e.pkg.Syntax {
-		filePath := e.pkg.Fset.File(astFile.Pos()).Name()
-		e.fileInfo[filePath] = &fileContext{
+		absFilePath := e.pkg.Fset.File(astFile.Pos()).Name()
+		// Convert to relative path for worktree compatibility
+		relFilePath := e.toRelPath(absFilePath)
+		e.fileInfo[relFilePath] = &fileContext{
 			astFile: astFile,
 			fset:    e.pkg.Fset,
 			pkg:     e.pkg,
@@ -429,6 +431,21 @@ func (e *SymbolExtractor) extractStructFields(structType *ast.StructType, struct
 }
 
 // Helper methods
+
+// toRelPath converts an absolute file path to a relative path from the repository root.
+// This ensures that file paths work correctly across different worktrees.
+func (e *SymbolExtractor) toRelPath(absPath string) string {
+	if e.repoPath == "" {
+		return absPath
+	}
+	relPath, err := filepath.Rel(e.repoPath, absPath)
+	if err != nil || filepath.IsAbs(relPath) {
+		// If conversion fails or path is outside repo, return absolute path
+		return absPath
+	}
+	// Use forward slashes for consistency
+	return filepath.ToSlash(relPath)
+}
 
 func (e *SymbolExtractor) packageID() string {
 	return fmt.Sprintf("pkg:%s", e.pkg.PkgPath)

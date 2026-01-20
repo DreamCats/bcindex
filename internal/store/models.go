@@ -23,6 +23,8 @@ type Symbol struct {
 	Signature string `json:"signature"` // Full signature (for funcs/methods)
 
 	// Source location
+	// FilePath is stored as relative path from repository root for worktree compatibility.
+	// For example: "internal/pkg/file.go" instead of "/abs/path/internal/pkg/file.go"
 	FilePath  string `json:"file_path"`
 	LineStart int    `json:"line_start"`
 	LineEnd   int    `json:"line_end"`

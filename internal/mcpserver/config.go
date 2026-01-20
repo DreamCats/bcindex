@@ -12,6 +12,9 @@ import (
 	"github.com/DreamCats/bcindex/internal/config"
 )
 
+// resolveRepoRoot resolves the repository root path.
+// For git repositories with worktrees, it uses the git common directory
+// to ensure all worktrees share the same index database.
 func resolveRepoRoot(repoPath string) (string, error) {
 	root := repoPath
 	if root == "" || root == "." {
@@ -23,7 +26,12 @@ func resolveRepoRoot(repoPath string) (string, error) {
 		return "", err
 	}
 
-	if gitRoot := gitTopLevel(absPath); gitRoot != "" {
+	// Try git common-dir first (supports worktrees)
+	// This returns the shared .git directory for all worktrees
+	if gitCommonDir := gitCommonDir(absPath); gitCommonDir != "" {
+		absPath = gitCommonDir
+	} else if gitRoot := gitTopLevel(absPath); gitRoot != "" {
+		// Fallback to git toplevel for non-worktree repos
 		absPath = gitRoot
 	}
 
@@ -34,6 +42,25 @@ func resolveRepoRoot(repoPath string) (string, error) {
 	return absPath, nil
 }
 
+// gitCommonDir returns the git common directory path.
+// For worktrees, this returns the shared .git directory.
+// For regular repos, this returns the .git directory path.
+func gitCommonDir(dir string) string {
+	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	commonDir := strings.TrimSpace(string(output))
+	// Check if the command succeeded (some git versions return the flag name on error)
+	if commonDir == "" || commonDir == "--git-common-dir" {
+		return ""
+	}
+	return commonDir
+}
+
+// gitTopLevel returns the git repository root directory path.
 func gitTopLevel(dir string) string {
 	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
 	cmd.Dir = dir
