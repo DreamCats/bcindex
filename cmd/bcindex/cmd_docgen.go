@@ -19,7 +19,7 @@ import (
 func handleDocGen(cfg *config.Config, repoRoot string, args []string) {
 	fs := flag.NewFlagSet("docgen", flag.ExitOnError)
 
-	var dryRun, diff, overwrite, verbose bool
+	var dryRun, diff, overwrite, verbose, initAliases bool
 	var maxPerFile, maxTotal, concurrency int
 	var includeList, excludeList internal.StringList
 
@@ -27,6 +27,7 @@ func handleDocGen(cfg *config.Config, repoRoot string, args []string) {
 	fs.BoolVar(&diff, "diff", false, "Output unified diff of changes")
 	fs.BoolVar(&overwrite, "overwrite", false, "Overwrite existing documentation")
 	fs.BoolVar(&verbose, "v", false, "Verbose output (show generation errors)")
+	fs.BoolVar(&initAliases, "init-aliases", false, "Generate domain_aliases.yaml even if it exists")
 	fs.IntVar(&maxPerFile, "max-per-file", 50, "Maximum symbols to process per file")
 	fs.IntVar(&maxTotal, "max", 200, "Maximum total symbols to process")
 	fs.IntVar(&concurrency, "concurrency", 4, "Number of concurrent LLM requests")
@@ -75,11 +76,31 @@ NOTES:
     - Requires docgen.api_key or embedding.api_key in config
     - Default model: doubao-1-5-pro-32k-250115
     - Use --dry-run first to preview changes before applying
+    - If domain_aliases.yaml doesn't exist, it will be created with a template
+    - Use --init-aliases to regenerate domain_aliases.yaml if it already exists
 `)
 	}
 
 	if err := fs.Parse(args); err != nil {
 		log.Fatalf("Failed to parse arguments: %v", err)
+	}
+
+	// Check and generate domain_aliases.yaml
+	aliasesFile := filepath.Join(repoRoot, "domain_aliases.yaml")
+	if _, err := os.Stat(aliasesFile); os.IsNotExist(err) {
+		if err := generateDomainAliasesFile(aliasesFile); err != nil {
+			log.Fatalf("Failed to generate domain_aliases.yaml: %v", err)
+		}
+		fmt.Printf("✅ Generated %s\n", aliasesFile)
+		fmt.Println("   Please edit this file to add your domain-specific synonyms and aliases.")
+		fmt.Println()
+	} else if initAliases {
+		// Force regenerate if --init-aliases is specified
+		if err := generateDomainAliasesFile(aliasesFile); err != nil {
+			log.Fatalf("Failed to regenerate domain_aliases.yaml: %v", err)
+		}
+		fmt.Printf("✅ Regenerated %s\n", aliasesFile)
+		fmt.Println()
 	}
 
 	// Build scanner options
@@ -339,4 +360,60 @@ NOTES:
 		fmt.Println("\n⚠️  Dry run mode - no files were modified")
 		fmt.Println("    Run without --dry-run to apply changes")
 	}
+}
+
+// domainAliasesTemplate is the content template for domain_aliases.yaml
+const domainAliasesTemplate = `# BCIndex 领域词映射配置文件
+# Domain-specific synonyms and aliases for code search enhancement
+#
+# 此文件用于定义业务领域内的同义词、中英对照、别名等，
+# 以提升跨语种/同义词/业务别名的召回率。
+#
+# 规范说明:
+# - version: 配置文件版本号
+# - synonyms: 同义词组映射
+#   - key 作为 canonical term (标准术语)
+#   - value 为 alias 列表
+#   - 查询扩展时：命中 key 或 alias 均扩展到整组
+#
+# 使用场景示例:
+#   - 中英对照: 秒杀 -> flash sale, promotion, seckill
+#   - 业务别名: 达人 -> creator, influencer, koc
+#   - 缩写展开: ID -> identifier, user_id, uid
+#
+# 注释以 # 开头
+
+version: 1
+
+synonyms:
+  # 示例: 电商/促销相关
+  # 秒杀:
+  #   - flash sale
+  #   - promotion
+  #   - seckill
+
+  # 示例: 用户/达人相关
+  # 达人:
+  #   - creator
+  #   - influencer
+  #   - koc
+
+  # 示例: 订单/交易相关
+  # 订单:
+  #   - order
+  #   - transaction
+
+  # 请根据你的业务领域添加更多同义词组
+`
+
+// generateDomainAliasesFile creates the domain_aliases.yaml file with template content
+func generateDomainAliasesFile(path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = f.WriteString(domainAliasesTemplate)
+	return err
 }

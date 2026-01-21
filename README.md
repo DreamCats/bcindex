@@ -346,6 +346,36 @@ bcindex docgen --overwrite
   - 中文为主 + 英文技术术语
 - 默认不会覆盖已有文档，需要 `--overwrite` 参数
 
+**domain_aliases.yaml 配置**：
+
+首次运行 `bcindex docgen` 时，会在仓库根目录自动生成 `domain_aliases.yaml` 模板文件：
+
+```yaml
+# BCIndex 领域词映射配置文件
+# 用于定义业务领域内的同义词、中英对照、别名等
+
+version: 1
+
+synonyms:
+  # 示例: 电商/促销相关
+  # 秒杀:
+  #   - flash sale
+  #   - promotion
+  #   - seckill
+
+  # 请根据你的业务领域添加更多同义词组
+```
+
+**使用场景**：
+- **中英对照**: 秒杀 -> flash sale, promotion, seckill
+- **业务别名**: 达人 -> creator, influencer, koc
+- **缩写展开**: ID -> identifier, user_id, uid
+
+**说明**：
+- 文件不存在时自动生成，已存在时跳过
+- 使用 `--init-aliases` 可强制重新生成模板
+- 该文件用于后续的查询扩展功能（P0 方案）
+
 **配置**：
 需要在配置文件中设置 `docgen.api_key`，也可以复用 `embedding.api_key`：
 
@@ -440,6 +470,7 @@ bcindex stats -json
 - `--dry-run`: 预览模式，不实际修改文件
 - `--diff`: 显示差异
 - `--overwrite`: 覆盖已有文档
+- `--init-aliases`: 强制重新生成 domain_aliases.yaml
 - `--max <num>`: 最大总符号数 (默认: 200)
 - `--max-per-file <num>`: 每个文件最大符号数 (默认: 50)
 - `--include <pattern>`: 包含路径（可多次指定）
@@ -451,6 +482,7 @@ bcindex docgen --dry-run
 bcindex docgen --diff
 bcindex docgen --max 100 --max-per-file 20
 bcindex docgen --include internal/service --exclude vendor
+bcindex docgen --init-aliases  # 重新生成 domain_aliases.yaml
 ```
 
 ## 🏗️ 架构
