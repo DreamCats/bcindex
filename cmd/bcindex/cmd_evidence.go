@@ -79,6 +79,11 @@ EXAMPLES:
 	}
 	defer idx.Close()
 
+	expander, err := retrieval.LoadSynonymsForRepo(cfg.Repo.Path, cfg.Search.SynonymsFile)
+	if err != nil {
+		log.Printf("Warning: failed to load synonyms file: %v", err)
+	}
+
 	symbolStore, packageStore, edgeStore, vectorStore := idx.GetStores()
 	retriever := retrieval.NewHybridRetriever(
 		vectorStore,
@@ -86,6 +91,7 @@ EXAMPLES:
 		packageStore,
 		edgeStore,
 		idx.GetEmbedService(),
+		expander,
 	)
 
 	// Configure evidence builder

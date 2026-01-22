@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -79,6 +80,11 @@ func (s *Server) searchTool(ctx context.Context, _ *mcp.CallToolRequest, input S
 	}
 	defer idx.Close()
 
+	expander, err := retrieval.LoadSynonymsForRepo(cfg.Repo.Path, cfg.Search.SynonymsFile)
+	if err != nil {
+		log.Printf("Warning: failed to load synonyms file: %v", err)
+	}
+
 	symbolStore, packageStore, edgeStore, vectorStore := idx.GetStores()
 	retriever := retrieval.NewHybridRetriever(
 		vectorStore,
@@ -86,6 +92,7 @@ func (s *Server) searchTool(ctx context.Context, _ *mcp.CallToolRequest, input S
 		packageStore,
 		edgeStore,
 		idx.GetEmbedService(),
+		expander,
 	)
 
 	opts := buildSearchOptions(cfg, input.TopK, input.IncludeUnexported, input.VectorOnly, input.KeywordOnly)
@@ -123,6 +130,11 @@ func (s *Server) evidenceTool(ctx context.Context, _ *mcp.CallToolRequest, input
 	}
 	defer idx.Close()
 
+	expander, err := retrieval.LoadSynonymsForRepo(cfg.Repo.Path, cfg.Search.SynonymsFile)
+	if err != nil {
+		log.Printf("Warning: failed to load synonyms file: %v", err)
+	}
+
 	symbolStore, packageStore, edgeStore, vectorStore := idx.GetStores()
 	retriever := retrieval.NewHybridRetriever(
 		vectorStore,
@@ -130,6 +142,7 @@ func (s *Server) evidenceTool(ctx context.Context, _ *mcp.CallToolRequest, input
 		packageStore,
 		edgeStore,
 		idx.GetEmbedService(),
+		expander,
 	)
 
 	evidenceBuilder := retriever.GetEvidenceBuilder()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/DreamCats/bcindex/internal/embedding"
 	"github.com/DreamCats/bcindex/internal/store"
@@ -16,6 +17,7 @@ type HybridRetriever struct {
 	packageStore    *store.PackageStore
 	edgeStore       *store.EdgeStore
 	embedService    *embedding.Service
+	expander        *SynonymsExpander
 	graphRanker     *GraphRanker
 	evidenceBuilder *EvidenceBuilder
 }
@@ -27,6 +29,7 @@ func NewHybridRetriever(
 	packageStore *store.PackageStore,
 	edgeStore *store.EdgeStore,
 	embedService *embedding.Service,
+	expander *SynonymsExpander,
 ) *HybridRetriever {
 	ranker := NewGraphRanker(symbolStore, edgeStore)
 	evidenceBuilder := NewEvidenceBuilder(symbolStore, packageStore, edgeStore)
@@ -37,6 +40,7 @@ func NewHybridRetriever(
 		packageStore:    packageStore,
 		edgeStore:       edgeStore,
 		embedService:    embedService,
+		expander:        expander,
 		graphRanker:     ranker,
 		evidenceBuilder: evidenceBuilder,
 	}
@@ -98,11 +102,23 @@ func (h *HybridRetriever) Search(ctx context.Context, query string, opts SearchO
 	opts.VectorWeight /= totalWeight
 	opts.KeywordWeight /= totalWeight
 
+	queryForEmbed := query
+	queryForFTS := query
+	if h.expander != nil {
+		expandedQuery, ftsQuery, _ := h.expander.Expand(query)
+		if strings.TrimSpace(expandedQuery) != "" {
+			queryForEmbed = expandedQuery
+		}
+		if strings.TrimSpace(ftsQuery) != "" {
+			queryForFTS = ftsQuery
+		}
+	}
+
 	// Step 1: Generate query embedding
 	var queryVector []float32
 	if opts.VectorWeight > 0 {
 		var err error
-		queryVector, err = h.embedService.Embed(ctx, query)
+		queryVector, err = h.embedService.Embed(ctx, queryForEmbed)
 		if err != nil {
 			return nil, fmt.Errorf("failed to embed query: %w", err)
 		}
@@ -127,7 +143,7 @@ func (h *HybridRetriever) Search(ctx context.Context, query string, opts SearchO
 	// Step 3: Keyword search using FTS
 	keywordResults := make(map[string]*scoredSymbol)
 	if opts.KeywordWeight > 0 {
-		kResults, err := h.symbolStore.SearchFTS(query, opts.TopK*2)
+		kResults, err := h.symbolStore.SearchFTS(queryForFTS, opts.TopK*2)
 		if err != nil {
 			return nil, fmt.Errorf("keyword search failed: %w", err)
 		}

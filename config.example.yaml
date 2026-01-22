@@ -93,6 +93,10 @@ embedding:
 #   # Default number of results
 #   default_top_k: 10
 #
+#   # Synonyms file (relative to repo root)
+#   # If the file does not exist, it will be ignored
+#   synonyms_file: domain_aliases.yaml
+#
 #   # Search weights (must sum to 1.0)
 #   vector_weight: 0.6
 #   keyword_weight: 0.2

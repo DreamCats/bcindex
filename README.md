@@ -458,6 +458,12 @@ synonyms:
 - 使用 `--init-aliases` 可强制重新生成模板
 - 该文件用于后续的查询扩展功能（P0 方案）
 
+**可选配置**（默认已使用 `domain_aliases.yaml`）：
+```yaml
+search:
+  synonyms_file: domain_aliases.yaml  # 相对 repo root
+```
+
 **配置**：
 需要在配置文件中设置 `docgen.api_key`，也可以复用 `embedding.api_key`：
 

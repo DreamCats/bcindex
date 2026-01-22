@@ -13,13 +13,13 @@ import (
 type Config struct {
 	// Deprecated: Repo path is now determined by current working directory
 	// This field is kept for backward compatibility but is no longer used
-	Repo     RepoConfig     `yaml:"repo,omitempty"`
+	Repo      RepoConfig      `yaml:"repo,omitempty"`
 	Embedding EmbeddingConfig `yaml:"embedding"`
-	Database DatabaseConfig   `yaml:"database"`
-	Indexer  IndexerConfig    `yaml:"indexer,omitempty"`
-	Search   SearchConfig     `yaml:"search,omitempty"`
-	Evidence EvidenceConfig   `yaml:"evidence,omitempty"`
-	DocGen   DocGenConfig     `yaml:"docgen,omitempty"`
+	Database  DatabaseConfig  `yaml:"database"`
+	Indexer   IndexerConfig   `yaml:"indexer,omitempty"`
+	Search    SearchConfig    `yaml:"search,omitempty"`
+	Evidence  EvidenceConfig  `yaml:"evidence,omitempty"`
+	DocGen    DocGenConfig    `yaml:"docgen,omitempty"`
 }
 
 // RepoConfig holds repository-specific configuration (deprecated)
@@ -41,8 +41,8 @@ type EmbeddingConfig struct {
 	OpenAIModel  string `yaml:"openai_model,omitempty"`
 
 	// Embedding parameters
-	Dimensions    int     `yaml:"dimensions"`     // 1024 | 2048
-	BatchSize     int     `yaml:"batch_size"`     // Batch size for embedding
+	Dimensions     int    `yaml:"dimensions"`      // 1024 | 2048
+	BatchSize      int    `yaml:"batch_size"`      // Batch size for embedding
 	EncodingFormat string `yaml:"encoding_format"` // "float" | "base64"
 }
 
@@ -62,11 +62,12 @@ type IndexerConfig struct {
 
 // SearchConfig holds search-specific configuration
 type SearchConfig struct {
-	DefaultTopK    int     `yaml:"default_top_k,omitempty"`    // Default number of results
-	VectorWeight   float32 `yaml:"vector_weight,omitempty"`    // Vector search weight (0-1)
-	KeywordWeight  float32 `yaml:"keyword_weight,omitempty"`   // Keyword search weight (0-1)
-	GraphWeight    float32 `yaml:"graph_weight,omitempty"`     // Graph ranking weight (0-1)
-	EnableGraphRank bool   `yaml:"enable_graph_rank,omitempty"` // Enable graph-based ranking
+	DefaultTopK     int     `yaml:"default_top_k,omitempty"`     // Default number of results
+	VectorWeight    float32 `yaml:"vector_weight,omitempty"`     // Vector search weight (0-1)
+	KeywordWeight   float32 `yaml:"keyword_weight,omitempty"`    // Keyword search weight (0-1)
+	GraphWeight     float32 `yaml:"graph_weight,omitempty"`      // Graph ranking weight (0-1)
+	EnableGraphRank bool    `yaml:"enable_graph_rank,omitempty"` // Enable graph-based ranking
+	SynonymsFile    string  `yaml:"synonyms_file,omitempty"`     // Repo-relative synonyms file
 }
 
 // EvidenceConfig holds evidence pack configuration
@@ -152,8 +153,9 @@ func IsConfigNotFound(err error) bool {
 
 // expandPath expands ~ and $HOME to the user's home directory
 // Supports both:
-//   ~/.bcindex/data/bcindex.db
-//   $HOME/.bcindex/data/bcindex.db
+//
+//	~/.bcindex/data/bcindex.db
+//	$HOME/.bcindex/data/bcindex.db
 func expandPath(path string) string {
 	// Handle $HOME environment variable
 	if strings.HasPrefix(path, "$HOME/") || path == "$HOME" {
@@ -244,6 +246,9 @@ func (c *Config) applyDefaults() error {
 		c.Search.GraphWeight = 0.2
 	}
 	c.Search.EnableGraphRank = true // default enabled
+	if c.Search.SynonymsFile == "" {
+		c.Search.SynonymsFile = "domain_aliases.yaml"
+	}
 
 	// Set default evidence options
 	if c.Evidence.MaxPackages == 0 {
