@@ -200,6 +200,53 @@ func (s *SymbolStore) GetByRepo(repoPath string) ([]*Symbol, error) {
 	return symbols, nil
 }
 
+// FindByName retrieves symbols by exact name with optional repo/package filters.
+func (s *SymbolStore) FindByName(name string, repoPath string, packagePath string, limit int) ([]*Symbol, error) {
+	if name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+
+	query := `
+		SELECT id, repo_path, kind, package_path, package_name, name, signature,
+			file_path, line_start, line_end, doc_comment, exported, semantic_text,
+			tokens, type_details, created_at, updated_at
+		FROM symbols WHERE name = ?
+	`
+	args := []interface{}{name}
+
+	if repoPath != "" {
+		query += " AND repo_path = ?"
+		args = append(args, repoPath)
+	}
+	if packagePath != "" {
+		query += " AND package_path = ?"
+		args = append(args, packagePath)
+	}
+
+	query += " ORDER BY package_path, kind, name LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := s.db.sqlDB.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query symbols: %w", err)
+	}
+	defer rows.Close()
+
+	var symbols []*Symbol
+	for rows.Next() {
+		sym, err := s.scanSymbolRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		symbols = append(symbols, sym)
+	}
+
+	return symbols, nil
+}
+
 // FileSymbol represents a file-level symbol record.
 type FileSymbol struct {
 	PackagePath string

@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/DreamCats/bcindex/internal/config"
@@ -45,6 +46,11 @@ func (s *Server) Run(ctx context.Context) error {
 		Name:        "bcindex_context",
 		Description: "Provide richer context (packages, symbols, snippets) for implementation/flow questions.",
 	}, s.evidenceTool)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "bcindex_refs",
+		Description: "List references/callers/dependencies for a symbol (incoming/outgoing edges).",
+	}, s.refsTool)
 
 	return server.Run(ctx, &mcp.StdioTransport{})
 }
@@ -139,6 +145,115 @@ func (s *Server) evidenceTool(ctx context.Context, _ *mcp.CallToolRequest, input
 	}
 
 	output := toEvidenceOutput(pack)
+	return nil, output, nil
+}
+
+func (s *Server) refsTool(ctx context.Context, _ *mcp.CallToolRequest, input RefsInput) (*mcp.CallToolResult, RefsOutput, error) {
+	if input.SymbolID == "" && input.SymbolName == "" {
+		return nil, RefsOutput{}, fmt.Errorf("symbol_id or symbol_name is required")
+	}
+
+	repoPath := input.Repo
+	if repoPath == "" {
+		repoPath = s.defaultRepo
+	}
+
+	cfg, err := prepareConfig(s.baseConfig, repoPath)
+	if err != nil {
+		return nil, RefsOutput{}, err
+	}
+
+	idx, err := indexer.NewIndexer(cfg)
+	if err != nil {
+		return nil, RefsOutput{}, err
+	}
+	defer idx.Close()
+
+	symbolStore, _, edgeStore, _ := idx.GetStores()
+
+	var symbols []*store.Symbol
+	if input.SymbolID != "" {
+		sym, err := symbolStore.Get(input.SymbolID)
+		if err != nil {
+			return nil, RefsOutput{}, err
+		}
+		if sym != nil {
+			symbols = []*store.Symbol{sym}
+		}
+	} else {
+		limit := input.TopK
+		if limit <= 0 {
+			limit = 20
+		}
+		symbols, err = symbolStore.FindByName(input.SymbolName, cfg.Repo.Path, input.PackagePath, limit)
+		if err != nil {
+			return nil, RefsOutput{}, err
+		}
+	}
+
+	output := RefsOutput{
+		SymbolID:   input.SymbolID,
+		SymbolName: input.SymbolName,
+		Direction:  normalizeDirection(input.Direction),
+		EdgeType:   strings.TrimSpace(input.EdgeType),
+		Symbols:    mapRefSymbols(symbols),
+		Edges:      []RefEdge{},
+		Count:      0,
+	}
+
+	if len(symbols) == 0 {
+		return nil, output, nil
+	}
+
+	direction := output.Direction
+	if direction == "" {
+		direction = "incoming"
+		output.Direction = direction
+	}
+	if direction != "incoming" && direction != "outgoing" && direction != "both" {
+		return nil, RefsOutput{}, fmt.Errorf("invalid direction: %s", direction)
+	}
+
+	edgeType := output.EdgeType
+	if edgeType != "" && !isValidEdgeType(edgeType) {
+		return nil, RefsOutput{}, fmt.Errorf("invalid edge_type: %s", edgeType)
+	}
+
+	edgeMap := make(map[string]RefEdge)
+	for _, sym := range symbols {
+		if sym == nil {
+			continue
+		}
+
+		if direction == "incoming" || direction == "both" {
+			incoming, err := edgeStore.GetIncoming(sym.ID, edgeType)
+			if err != nil {
+				return nil, RefsOutput{}, err
+			}
+			collectRefEdges(edgeMap, incoming, symbolStore)
+		}
+
+		if direction == "outgoing" || direction == "both" {
+			outgoing, err := edgeStore.GetOutgoing(sym.ID, edgeType)
+			if err != nil {
+				return nil, RefsOutput{}, err
+			}
+			collectRefEdges(edgeMap, outgoing, symbolStore)
+		}
+	}
+
+	edges := make([]RefEdge, 0, len(edgeMap))
+	for _, edge := range edgeMap {
+		edges = append(edges, edge)
+	}
+
+	if input.TopK > 0 && len(edges) > input.TopK {
+		edges = edges[:input.TopK]
+	}
+
+	output.Edges = edges
+	output.Count = len(edges)
+
 	return nil, output, nil
 }
 
@@ -242,6 +357,87 @@ func toEvidenceOutput(pack *store.EvidencePack) EvidenceOutput {
 			HasVectorSearch: pack.Metadata.HasVectorSearch,
 			GeneratedAt:     pack.Metadata.GeneratedAt.UTC().Format(time.RFC3339),
 		},
+	}
+}
+
+func normalizeDirection(direction string) string {
+	if direction == "" {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(direction))
+}
+
+func isValidEdgeType(edgeType string) bool {
+	switch edgeType {
+	case store.EdgeTypeCalls,
+		store.EdgeTypeImplements,
+		store.EdgeTypeImports,
+		store.EdgeTypeReferences,
+		store.EdgeTypeEmbeds:
+		return true
+	default:
+		return false
+	}
+}
+
+func mapRefSymbols(symbols []*store.Symbol) []RefSymbol {
+	if len(symbols) == 0 {
+		return []RefSymbol{}
+	}
+	out := make([]RefSymbol, 0, len(symbols))
+	for _, sym := range symbols {
+		if sym == nil {
+			continue
+		}
+		out = append(out, RefSymbol{
+			ID:          sym.ID,
+			Name:        sym.Name,
+			Kind:        sym.Kind,
+			PackagePath: sym.PackagePath,
+			FilePath:    sym.FilePath,
+			Line:        sym.LineStart,
+			Signature:   sym.Signature,
+		})
+	}
+	return out
+}
+
+func collectRefEdges(edgeMap map[string]RefEdge, edges []*store.Edge, symbolStore *store.SymbolStore) {
+	for _, edge := range edges {
+		if edge == nil {
+			continue
+		}
+		key := fmt.Sprintf("%s|%s|%s", edge.FromID, edge.ToID, edge.EdgeType)
+		if _, exists := edgeMap[key]; exists {
+			continue
+		}
+
+		fromSym, _ := symbolStore.Get(edge.FromID)
+		toSym, _ := symbolStore.Get(edge.ToID)
+		if fromSym == nil || toSym == nil {
+			continue
+		}
+
+		edgeMap[key] = RefEdge{
+			EdgeType: edge.EdgeType,
+			From: RefEndpoint{
+				ID:          fromSym.ID,
+				Name:        fromSym.Name,
+				Kind:        fromSym.Kind,
+				PackagePath: fromSym.PackagePath,
+				FilePath:    fromSym.FilePath,
+				Line:        fromSym.LineStart,
+			},
+			To: RefEndpoint{
+				ID:          toSym.ID,
+				Name:        toSym.Name,
+				Kind:        toSym.Kind,
+				PackagePath: toSym.PackagePath,
+				FilePath:    toSym.FilePath,
+				Line:        toSym.LineStart,
+			},
+			ImportPath: edge.ImportPath,
+		}
 	}
 }
 

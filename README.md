@@ -204,9 +204,10 @@ bcindex evidence "database migration" \
 bcindex mcp
 ```
 
-该模式提供两个工具：
+该模式提供三个工具：
 - `bcindex_locate`：快速定位符号/文件/定义（适合“在哪里/是什么”）
 - `bcindex_context`：上下文证据包（适合“怎么实现/调用链/模块关系”）
+- `bcindex_refs`：引用/调用/依赖关系（适合“被谁引用/谁调用/外部依赖”）
 
 客户端配置（stdio）：
 - 在客户端的 MCP 设置中新增一个 stdio server，命令为 `bcindex`，参数为 `mcp`
@@ -236,6 +237,87 @@ bcindex mcp
   "query": "如何生成证据包",
   "top_k": 10,
   "include_unexported": false
+}
+```
+
+`bcindex_refs` 输入示例（按符号 ID）：
+```json
+{
+  "symbol_id": "func:myapp/service/payment.ProcessPayment",
+  "edge_type": "calls",
+  "direction": "incoming",
+  "top_k": 20
+}
+```
+
+`bcindex_refs` 输入示例（按符号名 + 包过滤）：
+```json
+{
+  "symbol_name": "ProcessPayment",
+  "package_path": "myapp/service/payment",
+  "direction": "both",
+  "top_k": 20
+}
+```
+
+`bcindex_refs` 输出示例：
+```json
+{
+  "symbol_id": "func:myapp/service/payment.ProcessPayment",
+  "direction": "incoming",
+  "edge_type": "calls",
+  "count": 2,
+  "symbols": [
+    {
+      "id": "func:myapp/service/payment.ProcessPayment",
+      "name": "ProcessPayment",
+      "kind": "func",
+      "package_path": "myapp/service/payment",
+      "file_path": "service/payment/process.go",
+      "line": 42,
+      "signature": "func ProcessPayment(ctx context.Context, req *PayRequest) error"
+    }
+  ],
+  "edges": [
+    {
+      "edge_type": "calls",
+      "from": {
+        "id": "method:myapp/handler.PaymentHandler.Handle",
+        "name": "Handle",
+        "kind": "method",
+        "package_path": "myapp/handler",
+        "file_path": "handler/payment.go",
+        "line": 88
+      },
+      "to": {
+        "id": "func:myapp/service/payment.ProcessPayment",
+        "name": "ProcessPayment",
+        "kind": "func",
+        "package_path": "myapp/service/payment",
+        "file_path": "service/payment/process.go",
+        "line": 42
+      }
+    },
+    {
+      "edge_type": "calls",
+      "from": {
+        "id": "func:myapp/job.RetryPaymentJob",
+        "name": "RetryPaymentJob",
+        "kind": "func",
+        "package_path": "myapp/job",
+        "file_path": "job/retry_payment.go",
+        "line": 25
+      },
+      "to": {
+        "id": "func:myapp/service/payment.ProcessPayment",
+        "name": "ProcessPayment",
+        "kind": "func",
+        "package_path": "myapp/service/payment",
+        "file_path": "service/payment/process.go",
+        "line": 42
+      }
+    }
+  ]
 }
 ```
 

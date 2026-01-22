@@ -72,3 +72,54 @@ type EvidenceOutput struct {
 	Snippets    []store.CodeSnippet `json:"snippets"`
 	Metadata    EvidenceMetadata    `json:"metadata"`
 }
+
+// RefsInput defines inputs for the bcindex_refs MCP tool.
+type RefsInput struct {
+	SymbolID    string `json:"symbol_id,omitempty" jsonschema:"symbol id (preferred)"`
+	SymbolName  string `json:"symbol_name,omitempty" jsonschema:"symbol name (exact match)"`
+	PackagePath string `json:"package_path,omitempty" jsonschema:"filter by package path (optional)"`
+	Repo        string `json:"repo,omitempty" jsonschema:"repository root path (optional)"`
+	EdgeType    string `json:"edge_type,omitempty" jsonschema:"calls|references|implements|imports|embeds"`
+	Direction   string `json:"direction,omitempty" jsonschema:"incoming|outgoing|both"`
+	TopK        int    `json:"top_k,omitempty" jsonschema:"max edges to return"`
+}
+
+// RefSymbol is a compact symbol representation for refs output.
+type RefSymbol struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	PackagePath string `json:"package_path"`
+	FilePath    string `json:"file_path"`
+	Line        int    `json:"line"`
+	Signature   string `json:"signature,omitempty"`
+}
+
+// RefEndpoint represents one side of a reference edge.
+type RefEndpoint struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	PackagePath string `json:"package_path"`
+	FilePath    string `json:"file_path"`
+	Line        int    `json:"line"`
+}
+
+// RefEdge is the MCP-friendly representation of a relationship.
+type RefEdge struct {
+	EdgeType   string      `json:"edge_type"`
+	From       RefEndpoint `json:"from"`
+	To         RefEndpoint `json:"to"`
+	ImportPath string      `json:"import_path,omitempty"`
+}
+
+// RefsOutput is the output for bcindex_refs.
+type RefsOutput struct {
+	SymbolID   string      `json:"symbol_id,omitempty"`
+	SymbolName string      `json:"symbol_name,omitempty"`
+	Direction  string      `json:"direction,omitempty"`
+	EdgeType   string      `json:"edge_type,omitempty"`
+	Count      int         `json:"count"`
+	Symbols    []RefSymbol `json:"symbols"`
+	Edges      []RefEdge   `json:"edges"`
+}

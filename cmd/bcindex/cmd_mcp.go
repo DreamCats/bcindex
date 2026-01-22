@@ -22,8 +22,9 @@ func handleMCP(cfg *config.Config, repoRoot string, args []string) {
 
 DESCRIPTION:
     Run an MCP stdio server exposing:
-      - bcindex_search
-      - bcindex_evidence
+      - bcindex_locate
+      - bcindex_context
+      - bcindex_refs
 `)
 	}
 
