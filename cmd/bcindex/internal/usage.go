@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const Version = "1.0.6"
+const Version = "1.0.7"
 
 // PrintUsage 向 stderr 输出 bcindex 的用法与可用子命令列表。
 // 无返回值，直接退出程序。

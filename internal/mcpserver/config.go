@@ -2,8 +2,10 @@ package mcpserver
 
 import (
 	"crypto/sha1"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,8 +15,7 @@ import (
 )
 
 // resolveRepoRoot resolves the repository root path.
-// For git repositories with worktrees, it uses the git common directory
-// to ensure all worktrees share the same index database.
+// It mirrors the CLI behavior by using the git top-level (if present).
 func resolveRepoRoot(repoPath string) (string, error) {
 	root := repoPath
 	if root == "" || root == "." {
@@ -26,12 +27,7 @@ func resolveRepoRoot(repoPath string) (string, error) {
 		return "", err
 	}
 
-	// Try git common-dir first (supports worktrees)
-	// This returns the shared .git directory for all worktrees
-	if gitCommonDir := gitCommonDir(absPath); gitCommonDir != "" {
-		absPath = gitCommonDir
-	} else if gitRoot := gitTopLevel(absPath); gitRoot != "" {
-		// Fallback to git toplevel for non-worktree repos
+	if gitRoot := gitTopLevel(absPath); gitRoot != "" {
 		absPath = gitRoot
 	}
 
@@ -40,24 +36,6 @@ func resolveRepoRoot(repoPath string) (string, error) {
 	}
 
 	return absPath, nil
-}
-
-// gitCommonDir returns the git common directory path.
-// For worktrees, this returns the shared .git directory.
-// For regular repos, this returns the .git directory path.
-func gitCommonDir(dir string) string {
-	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
-	cmd.Dir = dir
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	commonDir := strings.TrimSpace(string(output))
-	// Check if the command succeeded (some git versions return the flag name on error)
-	if commonDir == "" || commonDir == "--git-common-dir" {
-		return ""
-	}
-	return commonDir
 }
 
 // gitTopLevel returns the git repository root directory path.
@@ -112,12 +90,137 @@ func prepareConfig(base *config.Config, repoPath string) (*config.Config, error)
 	if err != nil {
 		return nil, err
 	}
-	cfg := *base
-	cfg.Repo.Path = repoRoot
-	dbPath, err := defaultDBPath(repoRoot)
+	selectedRoot, dbPath, err := selectRepoRootAndDB(repoRoot)
 	if err != nil {
 		return nil, err
 	}
+	cfg := *base
+	cfg.Repo.Path = selectedRoot
 	cfg.Database.Path = dbPath
 	return &cfg, nil
+}
+
+func selectRepoRootAndDB(repoRoot string) (string, string, error) {
+	candidates := repoRootCandidates(repoRoot)
+	for _, candidate := range candidates {
+		dbPath, err := defaultDBPath(candidate)
+		if err != nil {
+			return "", "", err
+		}
+		ok, err := hasIndexedRepo(dbPath, candidate)
+		if err != nil {
+			continue
+		}
+		if ok {
+			return candidate, dbPath, nil
+		}
+	}
+	dbPath, err := defaultDBPath(repoRoot)
+	if err != nil {
+		return "", "", err
+	}
+	return repoRoot, dbPath, nil
+}
+
+func repoRootCandidates(currentRoot string) []string {
+	candidates := []string{currentRoot}
+	worktrees, err := gitWorktrees(currentRoot)
+	if err != nil || len(worktrees) == 0 {
+		return candidates
+	}
+	primary := worktrees[0]
+	if primary != "" && primary != currentRoot {
+		candidates = append(candidates, primary)
+	}
+	for _, wt := range worktrees[1:] {
+		if wt == "" || wt == currentRoot || wt == primary {
+			continue
+		}
+		candidates = append(candidates, wt)
+	}
+	return candidates
+}
+
+func gitWorktrees(dir string) ([]string, error) {
+	cmd := exec.Command("git", "worktree", "list", "--porcelain")
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(string(output), "\n")
+	var roots []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "worktree ") {
+			continue
+		}
+		path := strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
+		if path == "" {
+			continue
+		}
+		roots = append(roots, normalizePath(path))
+	}
+	return roots, nil
+}
+
+func normalizePath(path string) string {
+	if path == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	return path
+}
+
+func hasIndexedRepo(dbPath string, repoRoot string) (bool, error) {
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if info.Size() == 0 {
+		return false, nil
+	}
+
+	dsn := readOnlySQLiteDSN(dbPath)
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+
+	var exists int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='repositories'",
+	).Scan(&exists); err != nil {
+		return false, err
+	}
+	if exists == 0 {
+		return false, nil
+	}
+
+	var count int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM repositories WHERE root_path = ? AND symbol_count > 0",
+		repoRoot,
+	).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func readOnlySQLiteDSN(path string) string {
+	path = filepath.ToSlash(path)
+	u := url.URL{Scheme: "file", Path: path}
+	values := url.Values{}
+	values.Set("mode", "ro")
+	u.RawQuery = values.Encode()
+	return u.String()
 }
