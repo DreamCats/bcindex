@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
 )
 
 // SymbolStore provides CRUD operations for symbols
@@ -349,6 +351,30 @@ func (s *SymbolStore) SearchFTS(query string, limit int) ([]*Symbol, error) {
 		limit = 10
 	}
 
+	symbols, err := s.searchFTS(query, limit)
+	if err == nil {
+		return symbols, nil
+	}
+	if !isFTSSyntaxError(err) {
+		return nil, err
+	}
+
+	cleaned := sanitizeFTSQuery(query)
+	if cleaned == "" {
+		return []*Symbol{}, nil
+	}
+	if cleaned == query {
+		return nil, err
+	}
+
+	symbols, retryErr := s.searchFTS(cleaned, limit)
+	if retryErr != nil {
+		return nil, err
+	}
+	return symbols, nil
+}
+
+func (s *SymbolStore) searchFTS(query string, limit int) ([]*Symbol, error) {
 	// Use FTS5 to search
 	sqlQuery := `
 		SELECT s.id, s.repo_path, s.kind, s.package_path, s.package_name,
@@ -378,6 +404,35 @@ func (s *SymbolStore) SearchFTS(query string, limit int) ([]*Symbol, error) {
 	}
 
 	return symbols, nil
+}
+
+func isFTSSyntaxError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "fts5:syntax error")
+}
+
+func sanitizeFTSQuery(query string) string {
+	if strings.TrimSpace(query) == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	lastSpace := true
+	for _, r := range query {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			lastSpace = false
+			continue
+		}
+		if !lastSpace {
+			b.WriteByte(' ')
+			lastSpace = true
+		}
+	}
+
+	return strings.TrimSpace(b.String())
 }
 
 // scanSymbolRow scans a row into a Symbol
