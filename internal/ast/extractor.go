@@ -290,6 +290,9 @@ func (e *SymbolExtractor) extractFuncDecl(decl *ast.FuncDecl, filePath string, c
 	} else {
 		id = e.symbolID(filePath, kind, decl.Name.Name)
 	}
+	if kind == "func" && decl.Name.Name == "init" {
+		id = fmt.Sprintf("%s@%s:%d", id, filePath, startPos.Line)
+	}
 
 	sym := &ExtractedSymbol{
 		ID:          id,
