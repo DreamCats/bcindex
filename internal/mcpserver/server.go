@@ -47,8 +47,18 @@ func (s *Server) Run(ctx context.Context) error {
 	}, s.searchTool)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "bcindex_context",
-		Description: "Provide richer context (packages, symbols, snippets) for implementation/flow questions.",
+		Name: "bcindex_context",
+		Description: `Generate AI-friendly context (packages, symbols, snippets) for code understanding and implementation.
+
+Filters:
+- intent: Control result focus
+  - "design": Prefer interfaces, service layer, architecture overview
+  - "implementation": Prefer concrete code, repository/domain layer, details
+  - "extension": Prefer interfaces, middleware, extension points
+- kind_filter: Filter by symbol type (func, method, struct, interface, type)
+- layer_filter: Filter by architectural layer (handler, service, repository, domain, middleware, util)
+
+Use filters to get precise context for your task, reducing noise and token usage.`,
 	}, s.evidenceTool)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -182,6 +192,10 @@ func (s *Server) evidenceTool(ctx context.Context, _ *mcp.CallToolRequest, input
 	evidenceBuilder.SetMaxLines(pickInt(input.MaxLines, cfg.Evidence.MaxLines))
 
 	opts := buildSearchOptions(cfg, input.TopK, input.IncludeUnexported, false, false)
+	// Apply new filter options
+	opts.Intent = input.Intent
+	opts.Kinds = input.KindFilter
+	opts.LayerFilter = input.LayerFilter
 	pack, err := retriever.SearchAsEvidencePack(ctx, input.Query, opts)
 	if err != nil {
 		return nil, EvidenceOutput{}, err

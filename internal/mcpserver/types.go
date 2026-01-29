@@ -44,14 +44,17 @@ type SearchOutput struct {
 
 // EvidenceInput defines inputs for the bcindex_context MCP tool.
 type EvidenceInput struct {
-	Query             string `json:"query" jsonschema:"search query for evidence pack"`
-	Repo              string `json:"repo,omitempty" jsonschema:"repository root path (optional)"`
-	TopK              int    `json:"top_k,omitempty" jsonschema:"number of results to search"`
-	MaxPackages       int    `json:"max_packages,omitempty" jsonschema:"max packages to include"`
-	MaxSymbols        int    `json:"max_symbols,omitempty" jsonschema:"max symbols to include"`
-	MaxSnippets       int    `json:"max_snippets,omitempty" jsonschema:"max code snippets to include"`
-	MaxLines          int    `json:"max_lines,omitempty" jsonschema:"max total lines across snippets"`
-	IncludeUnexported bool   `json:"include_unexported,omitempty" jsonschema:"include unexported symbols"`
+	Query             string   `json:"query" jsonschema:"search query for evidence pack"`
+	Repo              string   `json:"repo,omitempty" jsonschema:"repository root path (optional)"`
+	TopK              int      `json:"top_k,omitempty" jsonschema:"number of results to search"`
+	MaxPackages       int      `json:"max_packages,omitempty" jsonschema:"max packages to include"`
+	MaxSymbols        int      `json:"max_symbols,omitempty" jsonschema:"max symbols to include"`
+	MaxSnippets       int      `json:"max_snippets,omitempty" jsonschema:"max code snippets to include"`
+	MaxLines          int      `json:"max_lines,omitempty" jsonschema:"max total lines across snippets"`
+	IncludeUnexported bool     `json:"include_unexported,omitempty" jsonschema:"include unexported symbols"`
+	Intent            string   `json:"intent,omitempty" jsonschema:"query intent: design (architecture/interfaces), implementation (concrete code/details), extension (interfaces/middleware)"`
+	KindFilter        []string `json:"kind_filter,omitempty" jsonschema:"filter by symbol kind: func, method, struct, interface, type"`
+	LayerFilter       []string `json:"layer_filter,omitempty" jsonschema:"filter by architectural layer: handler, service, repository, domain, middleware, util"`
 }
 
 // EvidenceMetadata is MCP-friendly metadata with string timestamps.

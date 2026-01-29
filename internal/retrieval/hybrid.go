@@ -57,6 +57,8 @@ type SearchOptions struct {
 	PackagePath     string   // Filter by package path
 	IncludePackages bool     // Also return package-level results
 	EnableGraphRank bool     // Enable graph-based ranking
+	LayerFilter     []string // Filter by architectural layer (handler, service, repository, domain, middleware, util)
+	Intent          string   // Query intent: design, implementation, extension
 }
 
 // DefaultSearchOptions returns default search options
@@ -71,6 +73,8 @@ func DefaultSearchOptions() SearchOptions {
 		PackagePath:     "",
 		IncludePackages: false,
 		EnableGraphRank: true,
+		LayerFilter:     nil,
+		Intent:          "",
 	}
 }
 
@@ -214,6 +218,21 @@ func (h *HybridRetriever) Search(ctx context.Context, query string, opts SearchO
 			continue
 		}
 
+		// Apply layer filter if specified
+		if len(opts.LayerFilter) > 0 {
+			layer := detectLayerFromPath(combined.symbol.PackagePath)
+			layerMatch := false
+			for _, l := range opts.LayerFilter {
+				if layer == l {
+					layerMatch = true
+					break
+				}
+			}
+			if !layerMatch {
+				continue
+			}
+		}
+
 		// Compute combined score
 		finalScore := opts.VectorWeight*combined.vectorScore + opts.KeywordWeight*combined.keywordScore
 
@@ -316,8 +335,12 @@ func (h *HybridRetriever) applyGraphRanking(results []SearchResult, query string
 		return results // Fallback to original results
 	}
 
-	// Reorder based on intent
-	rankedResults = h.graphRanker.ReorderWithIntent(rankedResults, query)
+	// Reorder based on intent (explicit intent takes priority over auto-detected)
+	intentQuery := query
+	if opts.Intent != "" {
+		intentQuery = opts.Intent // Use explicit intent keyword for detection
+	}
+	rankedResults = h.graphRanker.ReorderWithIntent(rankedResults, intentQuery)
 
 	// Update results with graph scores
 	resultMap := make(map[string]*SearchResult)
@@ -402,4 +425,40 @@ func (h *HybridRetriever) SearchAsEvidencePack(ctx context.Context, query string
 // GetEvidenceBuilder returns the evidence builder for configuration
 func (h *HybridRetriever) GetEvidenceBuilder() *EvidenceBuilder {
 	return h.evidenceBuilder
+}
+
+// detectLayerFromPath detects the architectural layer from package path
+func detectLayerFromPath(pkgPath string) string {
+	path := strings.ToLower(pkgPath)
+
+	if strings.Contains(path, "/handler/") || strings.Contains(path, "/controller/") ||
+		strings.Contains(path, "/api/") || strings.Contains(path, "/http/") {
+		return "handler"
+	}
+
+	if strings.Contains(path, "/service/") || strings.Contains(path, "/usecase/") ||
+		strings.Contains(path, "/business/") {
+		return "service"
+	}
+
+	if strings.Contains(path, "/repository/") || strings.Contains(path, "/repo/") ||
+		strings.Contains(path, "/dao/") || strings.Contains(path, "/storage/") {
+		return "repository"
+	}
+
+	if strings.Contains(path, "/domain/") || strings.Contains(path, "/entity/") ||
+		strings.Contains(path, "/model/") {
+		return "domain"
+	}
+
+	if strings.Contains(path, "/middleware/") || strings.Contains(path, "/filter/") {
+		return "middleware"
+	}
+
+	if strings.Contains(path, "/util/") || strings.Contains(path, "/helper/") ||
+		strings.Contains(path, "/common/") {
+		return "util"
+	}
+
+	return "unknown"
 }
