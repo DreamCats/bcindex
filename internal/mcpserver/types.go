@@ -158,3 +158,36 @@ type ReadSymbol struct {
 	Signature   string `json:"signature,omitempty"`
 	PackagePath string `json:"package_path"`
 }
+
+// StatusInput defines inputs for the bcindex_status MCP tool.
+type StatusInput struct {
+	Repo string `json:"repo,omitempty" jsonschema:"repository root path (optional, defaults to current repo)"`
+}
+
+// StatusOutput is the output for bcindex_status.
+type StatusOutput struct {
+	Indexed       bool         `json:"indexed"`
+	RootPath      string       `json:"root_path"`
+	DatabasePath  string       `json:"database_path"`
+	LastIndexedAt string       `json:"last_indexed_at,omitempty"`
+	IndexAge      string       `json:"index_age,omitempty"`
+	IsStale       bool         `json:"is_stale"`
+	StaleReason   string       `json:"stale_reason,omitempty"`
+	Stats         *IndexStats  `json:"stats,omitempty"`
+	Health        *IndexHealth `json:"health,omitempty"`
+}
+
+// IndexStats contains index statistics.
+type IndexStats struct {
+	SymbolCount   int  `json:"symbol_count"`
+	PackageCount  int  `json:"package_count"`
+	EdgeCount     int  `json:"edge_count"`
+	HasEmbeddings bool `json:"has_embeddings"`
+}
+
+// IndexHealth contains index health information.
+type IndexHealth struct {
+	DatabaseExists  bool   `json:"database_exists"`
+	DatabaseSize    int64  `json:"database_size_bytes"`
+	DatabaseSizeStr string `json:"database_size"`
+}

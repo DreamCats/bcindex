@@ -93,6 +93,19 @@ Options:
 - include_line_no: Include line numbers in output (default: true)`,
 	}, s.readTool)
 
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "bcindex_status",
+		Description: `Check the status of the bcindex for a repository.
+
+Returns:
+- Whether the repository is indexed
+- Last index time and age
+- Index statistics (symbols, packages, edges, embeddings)
+- Staleness indicator (if index may be outdated)
+
+Use this to verify index freshness before relying on search results.`,
+	}, s.statusTool)
+
 	return server.Run(ctx, &mcp.StdioTransport{})
 }
 
@@ -492,6 +505,133 @@ func readFileLines(filePath string, startLine int, endLine int, maxLines int, in
 	}
 
 	return strings.Join(lines, "\n"), actualStart, actualEnd, truncated, nil
+}
+
+func (s *Server) statusTool(ctx context.Context, _ *mcp.CallToolRequest, input StatusInput) (*mcp.CallToolResult, StatusOutput, error) {
+	repoPath := input.Repo
+	if repoPath == "" {
+		repoPath = s.defaultRepo
+	}
+
+	cfg, err := prepareConfig(s.baseConfig, repoPath)
+	if err != nil {
+		return nil, StatusOutput{
+			Indexed:      false,
+			RootPath:     repoPath,
+			DatabasePath: "",
+			IsStale:      true,
+			StaleReason:  fmt.Sprintf("Failed to prepare config: %v", err),
+		}, nil
+	}
+
+	output := StatusOutput{
+		Indexed:      false,
+		RootPath:     cfg.Repo.Path,
+		DatabasePath: cfg.Database.Path,
+		IsStale:      true,
+	}
+
+	// Check database file
+	dbInfo, err := os.Stat(cfg.Database.Path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			output.StaleReason = "Index database does not exist. Run 'bcindex index' to create it."
+			return nil, output, nil
+		}
+		output.StaleReason = fmt.Sprintf("Cannot access database: %v", err)
+		return nil, output, nil
+	}
+
+	output.Health = &IndexHealth{
+		DatabaseExists: true,
+		DatabaseSize:   dbInfo.Size(),
+		DatabaseSizeStr: formatBytes(dbInfo.Size()),
+	}
+
+	// Open indexer to get repository info
+	idx, err := indexer.NewIndexer(cfg)
+	if err != nil {
+		output.StaleReason = fmt.Sprintf("Failed to open index: %v", err)
+		return nil, output, nil
+	}
+	defer idx.Close()
+
+	// Get repository metadata
+	repoStore := idx.GetRepoStore()
+	repo, err := repoStore.GetByRootPath(cfg.Repo.Path)
+	if err != nil {
+		output.StaleReason = fmt.Sprintf("Failed to read repository info: %v", err)
+		return nil, output, nil
+	}
+
+	if repo == nil || repo.LastIndexedAt == nil {
+		output.StaleReason = "Repository not indexed. Run 'bcindex index' to index it."
+		return nil, output, nil
+	}
+
+	// Repository is indexed
+	output.Indexed = true
+	output.LastIndexedAt = repo.LastIndexedAt.UTC().Format(time.RFC3339)
+	output.Stats = &IndexStats{
+		SymbolCount:   repo.SymbolCount,
+		PackageCount:  repo.PackageCount,
+		EdgeCount:     repo.EdgeCount,
+		HasEmbeddings: repo.HasEmbeddings,
+	}
+
+	// Calculate index age and staleness
+	indexAge := time.Since(*repo.LastIndexedAt)
+	output.IndexAge = formatDuration(indexAge)
+
+	// Check staleness (consider stale if > 24 hours)
+	if indexAge > 24*time.Hour {
+		output.IsStale = true
+		output.StaleReason = fmt.Sprintf("Index is %s old. Consider re-indexing for latest changes.", output.IndexAge)
+	} else if indexAge > 1*time.Hour {
+		output.IsStale = false
+		output.StaleReason = fmt.Sprintf("Index is %s old. Recent changes may not be reflected.", output.IndexAge)
+	} else {
+		output.IsStale = false
+		output.StaleReason = ""
+	}
+
+	// Check if embeddings are available
+	if !repo.HasEmbeddings {
+		if output.StaleReason != "" {
+			output.StaleReason += " "
+		}
+		output.StaleReason += "Warning: No embeddings available. Semantic search may be limited."
+	}
+
+	return nil, output, nil
+}
+
+// formatBytes formats bytes to human-readable string
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// formatDuration formats duration to human-readable string
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%d seconds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%d minutes", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%.1f hours", d.Hours())
+	}
+	return fmt.Sprintf("%.1f days", d.Hours()/24)
 }
 
 func buildSearchOptions(cfg *config.Config, topK int, includeUnexported bool, vectorOnly bool, keywordOnly bool) retrieval.SearchOptions {

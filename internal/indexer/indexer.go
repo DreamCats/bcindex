@@ -595,3 +595,8 @@ func (idx *Indexer) GetStores() (*store.SymbolStore, *store.PackageStore, *store
 func (idx *Indexer) GetEmbedService() *embedding.Service {
 	return idx.embedService
 }
+
+// GetRepoStore returns the repository store
+func (idx *Indexer) GetRepoStore() *store.RepositoryStore {
+	return idx.repoStore
+}
