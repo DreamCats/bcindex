@@ -48,6 +48,7 @@ BCIndex 是一个为 Go 项目设计的语义代码搜索工具，通过 AST 解
 
 ### 从源码安装
 
+**GitHub:**
 ```bash
 # 克隆仓库
 git clone https://github.com/DreamCats/bcindex.git
@@ -60,10 +61,27 @@ go build -o bcindex ./cmd/bcindex
 sudo mv bcindex /usr/local/bin/
 ```
 
+**GitLab (字节内部):**
+```bash
+# 克隆仓库
+git clone git@code.byted.org:maifeng/bcindex.git
+cd bcindex
+
+# 编译
+go build -o bcindex ./cmd/bcindex
+
+# 安装到 PATH
+sudo mv bcindex /usr/local/bin/
+```
+
 ### 使用 go install
 
 ```bash
+# 从 GitHub 安装
 go install github.com/DreamCats/bcindex/cmd/bcindex@latest
+
+# 从 GitLab 安装 (字节内部)
+go install git@code.byted.org:maifeng/bcindex/cmd/bcindex@latest
 ```
 
 ## ⚙️ 配置
