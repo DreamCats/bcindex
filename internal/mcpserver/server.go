@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -105,6 +106,19 @@ Returns:
 
 Use this to verify index freshness before relying on search results.`,
 	}, s.statusTool)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "bcindex_repos",
+		Description: `List all indexed repositories.
+
+Returns a list of all repositories that have been indexed by bcindex,
+including their paths, statistics, and staleness status.
+
+Use this to:
+- See which repositories are available for searching
+- Check if a specific repository has been indexed
+- Find stale indexes that need re-indexing`,
+	}, s.reposTool)
 
 	return server.Run(ctx, &mcp.StdioTransport{})
 }
@@ -632,6 +646,140 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%.1f hours", d.Hours())
 	}
 	return fmt.Sprintf("%.1f days", d.Hours()/24)
+}
+
+func (s *Server) reposTool(ctx context.Context, _ *mcp.CallToolRequest, input ReposInput) (*mcp.CallToolResult, ReposOutput, error) {
+	// Get data directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, ReposOutput{}, fmt.Errorf("failed to get home directory: %w", err)
+	}
+	dataDir := filepath.Join(homeDir, ".bcindex", "data")
+
+	output := ReposOutput{
+		DataDir: dataDir,
+		Count:   0,
+		Repos:   []RepoSummary{},
+	}
+
+	// Check if data directory exists
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+		return nil, output, nil
+	}
+
+	// Scan for .db files
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		return nil, ReposOutput{}, fmt.Errorf("failed to read data directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".db") {
+			continue
+		}
+
+		dbPath := filepath.Join(dataDir, entry.Name())
+		repoSummary := s.getRepoSummaryFromDB(dbPath)
+		if repoSummary != nil {
+			output.Repos = append(output.Repos, *repoSummary)
+		}
+	}
+
+	output.Count = len(output.Repos)
+
+	// Sort by last indexed time (most recent first)
+	sortReposByLastIndexed(output.Repos)
+
+	return nil, output, nil
+}
+
+// getRepoSummaryFromDB extracts repository summary from a database file
+func (s *Server) getRepoSummaryFromDB(dbPath string) *RepoSummary {
+	// Get file info
+	fileInfo, err := os.Stat(dbPath)
+	if err != nil {
+		return nil
+	}
+
+	// Open database in read-only mode
+	dsn := readOnlySQLiteDSN(dbPath)
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+
+	// Check if repositories table exists
+	var tableExists int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='repositories'",
+	).Scan(&tableExists); err != nil || tableExists == 0 {
+		return nil
+	}
+
+	// Query repository info
+	var rootPath string
+	var lastIndexedAt sql.NullString
+	var symbolCount, packageCount, edgeCount int
+	var hasEmbeddings int
+
+	err = db.QueryRow(`
+		SELECT root_path, last_indexed_at, symbol_count, package_count, edge_count, has_embeddings
+		FROM repositories
+		LIMIT 1
+	`).Scan(&rootPath, &lastIndexedAt, &symbolCount, &packageCount, &edgeCount, &hasEmbeddings)
+	if err != nil {
+		return nil
+	}
+
+	summary := &RepoSummary{
+		RootPath:      rootPath,
+		Name:          filepath.Base(rootPath),
+		DatabasePath:  dbPath,
+		DatabaseSize:  formatBytes(fileInfo.Size()),
+		SymbolCount:   symbolCount,
+		PackageCount:  packageCount,
+		HasEmbeddings: hasEmbeddings > 0,
+		IsStale:       true,
+		Exists:        true,
+	}
+
+	// Check if repository directory still exists
+	if _, err := os.Stat(rootPath); os.IsNotExist(err) {
+		summary.Exists = false
+		summary.IsStale = true
+	}
+
+	// Parse last indexed time
+	if lastIndexedAt.Valid && lastIndexedAt.String != "" {
+		if t, err := time.Parse(time.RFC3339Nano, lastIndexedAt.String); err == nil {
+			summary.LastIndexedAt = t.UTC().Format(time.RFC3339)
+			indexAge := time.Since(t)
+			summary.IndexAge = formatDuration(indexAge)
+			summary.IsStale = indexAge > 24*time.Hour
+		} else if t, err := time.Parse(time.RFC3339, lastIndexedAt.String); err == nil {
+			summary.LastIndexedAt = t.UTC().Format(time.RFC3339)
+			indexAge := time.Since(t)
+			summary.IndexAge = formatDuration(indexAge)
+			summary.IsStale = indexAge > 24*time.Hour
+		}
+	}
+
+	return summary
+}
+
+// sortReposByLastIndexed sorts repositories by last indexed time (most recent first)
+func sortReposByLastIndexed(repos []RepoSummary) {
+	for i := 0; i < len(repos)-1; i++ {
+		for j := i + 1; j < len(repos); j++ {
+			// Parse times for comparison
+			ti, _ := time.Parse(time.RFC3339, repos[i].LastIndexedAt)
+			tj, _ := time.Parse(time.RFC3339, repos[j].LastIndexedAt)
+			if tj.After(ti) {
+				repos[i], repos[j] = repos[j], repos[i]
+			}
+		}
+	}
 }
 
 func buildSearchOptions(cfg *config.Config, topK int, includeUnexported bool, vectorOnly bool, keywordOnly bool) retrieval.SearchOptions {

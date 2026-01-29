@@ -191,3 +191,30 @@ type IndexHealth struct {
 	DatabaseSize    int64  `json:"database_size_bytes"`
 	DatabaseSizeStr string `json:"database_size"`
 }
+
+// ReposInput defines inputs for the bcindex_repos MCP tool.
+type ReposInput struct {
+	// No required inputs - lists all indexed repositories
+}
+
+// ReposOutput is the output for bcindex_repos.
+type ReposOutput struct {
+	DataDir string        `json:"data_dir"`
+	Count   int           `json:"count"`
+	Repos   []RepoSummary `json:"repos"`
+}
+
+// RepoSummary contains summary information for an indexed repository.
+type RepoSummary struct {
+	RootPath      string `json:"root_path"`
+	Name          string `json:"name"`
+	DatabasePath  string `json:"database_path"`
+	DatabaseSize  string `json:"database_size"`
+	LastIndexedAt string `json:"last_indexed_at,omitempty"`
+	IndexAge      string `json:"index_age,omitempty"`
+	SymbolCount   int    `json:"symbol_count"`
+	PackageCount  int    `json:"package_count"`
+	HasEmbeddings bool   `json:"has_embeddings"`
+	IsStale       bool   `json:"is_stale"`
+	Exists        bool   `json:"exists"`
+}
