@@ -49,8 +49,16 @@ func (s *Server) Run(ctx context.Context) error {
 	}, s.evidenceTool)
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "bcindex_refs",
-		Description: "List references/callers/dependencies for a symbol (incoming/outgoing edges).",
+		Name: "bcindex_refs",
+		Description: `Query structural relationships between symbols.
+
+Supported edge types:
+- implements: Find types implementing an interface
+- imports: Find packages importing a package
+- embeds: Find types embedding a struct
+- references: Find references to a symbol
+
+NOTE: For function call hierarchy (who calls this function), use get_call_hierarchy from byte-lsp-mcp instead.`,
 	}, s.refsTool)
 
 	return server.Run(ctx, &mcp.StdioTransport{})
@@ -382,12 +390,15 @@ func normalizeDirection(direction string) string {
 
 func isValidEdgeType(edgeType string) bool {
 	switch edgeType {
-	case store.EdgeTypeCalls,
-		store.EdgeTypeImplements,
+	case store.EdgeTypeImplements,
 		store.EdgeTypeImports,
 		store.EdgeTypeReferences,
 		store.EdgeTypeEmbeds:
 		return true
+	case store.EdgeTypeCalls:
+		// calls edge type is not supported in bcindex_refs
+		// use get_call_hierarchy from byte-lsp-mcp instead
+		return false
 	default:
 		return false
 	}

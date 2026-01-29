@@ -79,7 +79,7 @@ type RefsInput struct {
 	SymbolName  string `json:"symbol_name,omitempty" jsonschema:"symbol name (exact match)"`
 	PackagePath string `json:"package_path,omitempty" jsonschema:"filter by package path (optional)"`
 	Repo        string `json:"repo,omitempty" jsonschema:"repository root path (optional)"`
-	EdgeType    string `json:"edge_type,omitempty" jsonschema:"calls|references|implements|imports|embeds"`
+	EdgeType    string `json:"edge_type,omitempty" jsonschema:"references|implements|imports|embeds (NOTE: for calls, use get_call_hierarchy instead)"`
 	Direction   string `json:"direction,omitempty" jsonschema:"incoming|outgoing|both"`
 	TopK        int    `json:"top_k,omitempty" jsonschema:"max edges to return"`
 }
