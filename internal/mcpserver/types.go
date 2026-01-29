@@ -123,3 +123,35 @@ type RefsOutput struct {
 	Symbols    []RefSymbol `json:"symbols"`
 	Edges      []RefEdge   `json:"edges"`
 }
+
+// ReadInput defines inputs for the bcindex_read MCP tool.
+type ReadInput struct {
+	SymbolID      string `json:"symbol_id,omitempty" jsonschema:"read code by symbol id (from bcindex_locate results)"`
+	FilePath      string `json:"file_path,omitempty" jsonschema:"read code by file path (relative to repo root)"`
+	StartLine     int    `json:"start_line,omitempty" jsonschema:"start line number (1-based, requires file_path)"`
+	EndLine       int    `json:"end_line,omitempty" jsonschema:"end line number (1-based, requires file_path)"`
+	ContextLines  int    `json:"context_lines,omitempty" jsonschema:"extra lines before and after the symbol (default: 0)"`
+	Repo          string `json:"repo,omitempty" jsonschema:"repository root path (optional)"`
+	MaxLines      int    `json:"max_lines,omitempty" jsonschema:"maximum lines to return (default: 500)"`
+	IncludeLineNo bool   `json:"include_line_no,omitempty" jsonschema:"include line numbers in output (default: true)"`
+}
+
+// ReadOutput is the output for bcindex_read.
+type ReadOutput struct {
+	FilePath   string      `json:"file_path"`
+	StartLine  int         `json:"start_line"`
+	EndLine    int         `json:"end_line"`
+	TotalLines int         `json:"total_lines"`
+	Content    string      `json:"content"`
+	Symbol     *ReadSymbol `json:"symbol,omitempty"`
+	Truncated  bool        `json:"truncated"`
+}
+
+// ReadSymbol contains symbol metadata when reading by symbol_id.
+type ReadSymbol struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	Signature   string `json:"signature,omitempty"`
+	PackagePath string `json:"package_path"`
+}

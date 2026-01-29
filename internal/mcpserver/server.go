@@ -1,9 +1,12 @@
 package mcpserver
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -60,6 +63,25 @@ Supported edge types:
 
 NOTE: For function call hierarchy (who calls this function), use get_call_hierarchy from byte-lsp-mcp instead.`,
 	}, s.refsTool)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "bcindex_read",
+		Description: `Read source code content by symbol ID or file path.
+
+Usage modes:
+1. By symbol_id: Read the complete source code of a symbol (function, struct, etc.)
+   - Use symbol IDs from bcindex_locate results
+   - Automatically includes the full symbol definition
+
+2. By file_path + line range: Read specific lines from a file
+   - file_path is relative to repository root
+   - start_line and end_line are 1-based
+
+Options:
+- context_lines: Add extra lines before/after for context
+- max_lines: Limit output size (default: 500)
+- include_line_no: Include line numbers in output (default: true)`,
+	}, s.readTool)
 
 	return server.Run(ctx, &mcp.StdioTransport{})
 }
@@ -276,6 +298,186 @@ func (s *Server) refsTool(ctx context.Context, _ *mcp.CallToolRequest, input Ref
 	output.Count = len(edges)
 
 	return nil, output, nil
+}
+
+func (s *Server) readTool(ctx context.Context, _ *mcp.CallToolRequest, input ReadInput) (*mcp.CallToolResult, ReadOutput, error) {
+	if input.SymbolID == "" && input.FilePath == "" {
+		return nil, ReadOutput{}, fmt.Errorf("symbol_id or file_path is required")
+	}
+
+	repoPath := input.Repo
+	if repoPath == "" {
+		repoPath = s.defaultRepo
+	}
+
+	cfg, err := prepareConfig(s.baseConfig, repoPath)
+	if err != nil {
+		return nil, ReadOutput{}, err
+	}
+
+	maxLines := input.MaxLines
+	if maxLines <= 0 {
+		maxLines = 500
+	}
+
+	includeLineNo := true
+	if input.IncludeLineNo {
+		includeLineNo = input.IncludeLineNo
+	}
+
+	// Mode 1: Read by symbol ID
+	if input.SymbolID != "" {
+		return s.readBySymbolID(cfg, input.SymbolID, input.ContextLines, maxLines, includeLineNo)
+	}
+
+	// Mode 2: Read by file path and line range
+	return s.readByFilePath(cfg, input.FilePath, input.StartLine, input.EndLine, input.ContextLines, maxLines, includeLineNo)
+}
+
+func (s *Server) readBySymbolID(cfg *config.Config, symbolID string, contextLines int, maxLines int, includeLineNo bool) (*mcp.CallToolResult, ReadOutput, error) {
+	idx, err := indexer.NewIndexer(cfg)
+	if err != nil {
+		return nil, ReadOutput{}, err
+	}
+	defer idx.Close()
+
+	symbolStore, _, _, _ := idx.GetStores()
+	sym, err := symbolStore.Get(symbolID)
+	if err != nil {
+		return nil, ReadOutput{}, err
+	}
+	if sym == nil {
+		return nil, ReadOutput{}, fmt.Errorf("symbol not found: %s", symbolID)
+	}
+
+	// Resolve file path (stored as relative, need to make absolute)
+	filePath := sym.FilePath
+	if !filepath.IsAbs(filePath) {
+		filePath = filepath.Join(cfg.Repo.Path, filePath)
+	}
+
+	startLine := sym.LineStart - contextLines
+	if startLine < 1 {
+		startLine = 1
+	}
+	endLine := sym.LineEnd + contextLines
+
+	content, actualStart, actualEnd, truncated, err := readFileLines(filePath, startLine, endLine, maxLines, includeLineNo)
+	if err != nil {
+		return nil, ReadOutput{}, fmt.Errorf("failed to read file %s: %w", filePath, err)
+	}
+
+	output := ReadOutput{
+		FilePath:   sym.FilePath, // Return relative path
+		StartLine:  actualStart,
+		EndLine:    actualEnd,
+		TotalLines: actualEnd - actualStart + 1,
+		Content:    content,
+		Symbol: &ReadSymbol{
+			ID:          sym.ID,
+			Name:        sym.Name,
+			Kind:        sym.Kind,
+			Signature:   sym.Signature,
+			PackagePath: sym.PackagePath,
+		},
+		Truncated: truncated,
+	}
+
+	return nil, output, nil
+}
+
+func (s *Server) readByFilePath(cfg *config.Config, filePath string, startLine int, endLine int, contextLines int, maxLines int, includeLineNo bool) (*mcp.CallToolResult, ReadOutput, error) {
+	// Resolve file path
+	absPath := filePath
+	if !filepath.IsAbs(filePath) {
+		absPath = filepath.Join(cfg.Repo.Path, filePath)
+	}
+
+	// Validate file exists
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		return nil, ReadOutput{}, fmt.Errorf("file not found: %s", filePath)
+	}
+
+	// Default to reading entire file if no line range specified
+	if startLine <= 0 && endLine <= 0 {
+		startLine = 1
+		endLine = maxLines
+	}
+
+	// Apply context lines
+	startLine = startLine - contextLines
+	if startLine < 1 {
+		startLine = 1
+	}
+	endLine = endLine + contextLines
+
+	content, actualStart, actualEnd, truncated, err := readFileLines(absPath, startLine, endLine, maxLines, includeLineNo)
+	if err != nil {
+		return nil, ReadOutput{}, fmt.Errorf("failed to read file %s: %w", filePath, err)
+	}
+
+	output := ReadOutput{
+		FilePath:   filePath, // Return as provided
+		StartLine:  actualStart,
+		EndLine:    actualEnd,
+		TotalLines: actualEnd - actualStart + 1,
+		Content:    content,
+		Truncated:  truncated,
+	}
+
+	return nil, output, nil
+}
+
+// readFileLines reads specific lines from a file with optional line numbers.
+func readFileLines(filePath string, startLine int, endLine int, maxLines int, includeLineNo bool) (content string, actualStart int, actualEnd int, truncated bool, err error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", 0, 0, false, err
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	currentLine := 0
+	linesRead := 0
+
+	for scanner.Scan() {
+		currentLine++
+
+		if currentLine < startLine {
+			continue
+		}
+
+		if currentLine > endLine || linesRead >= maxLines {
+			if currentLine <= endLine {
+				truncated = true
+			}
+			break
+		}
+
+		line := scanner.Text()
+		if includeLineNo {
+			lines = append(lines, fmt.Sprintf("%4d\t%s", currentLine, line))
+		} else {
+			lines = append(lines, line)
+		}
+		linesRead++
+
+		if actualStart == 0 {
+			actualStart = currentLine
+		}
+		actualEnd = currentLine
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", 0, 0, false, err
+	}
+
+	if len(lines) == 0 {
+		return "", startLine, startLine, false, nil
+	}
+
+	return strings.Join(lines, "\n"), actualStart, actualEnd, truncated, nil
 }
 
 func buildSearchOptions(cfg *config.Config, topK int, includeUnexported bool, vectorOnly bool, keywordOnly bool) retrieval.SearchOptions {
