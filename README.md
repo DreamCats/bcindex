@@ -757,6 +757,24 @@ def get_evidence(query: str) -> dict:
 
 ## 📊 性能
 
+### MCP 工具 Token 开销
+
+BCIndex 提供 6 个 MCP 工具，每次 API 调用会携带工具定义（JSON Schema），预估 token 开销如下：
+
+| Tool | Description | Fields | Total |
+|------|-------------|--------|-------|
+| `bcindex_locate` | 17 | 55 | 72 |
+| `bcindex_context` | 154 | 143 | 297 |
+| `bcindex_refs` | 90 | 71 | 161 |
+| `bcindex_read` | 145 | 105 | 250 |
+| `bcindex_status` | 74 | 15 | 89 |
+| `bcindex_repos` | 79 | 0 | 79 |
+| **Subtotal** | 559 | 389 | 948 |
+| JSON Schema Overhead | - | - | 675 |
+| **Total** | - | - | **~1,623** |
+
+> **说明**: Token 估算使用 chars/4 近似方法，实际值可能有 ±20% 偏差。这是每次 API 调用的固定成本。
+
 ### 索引性能
 
 | 项目规模 | 符号数 | 索引时间 | 数据库大小 |
